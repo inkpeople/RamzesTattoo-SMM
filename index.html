@@ -15,34 +15,13 @@
 const BRAND="114e1c88-4850-41df-b192-1aa00b1782f1";
 const SUPABASE_URL="https://jgzzdsittnzomedvsspj.supabase.co";
 const SUPABASE_PUBLISHABLE_KEY="sb_publishable_z40zmd4oAy9jUr3Q4BgDYQ_-IpiIlJe";
-let accessToken="";
-function log(x){const el=document.getElementById("log");if(el)el.textContent=new Date().toLocaleTimeString()+" — "+x}
-async function getAccessToken(forceFresh=false){
-  if(!forceFresh&&accessToken)return accessToken;
-  if(!forceFresh){
-    const saved=localStorage.getItem("ramzes_smm_access_token");
-    if(saved){accessToken=saved;return accessToken}
-  }
-  const r=await fetch(SUPABASE_URL+"/auth/v1/signup",{method:"POST",headers:{"Content-Type":"application/json","apikey":SUPABASE_PUBLISHABLE_KEY},body:JSON.stringify({})});
-  const d=await r.json().catch(()=>({}));
-  if(!r.ok||!d.access_token)throw new Error(d.msg||d.error_description||d.message||"Не удалось получить новую сессию Supabase. Проверь Anonymous Sign-Ins.");
-  accessToken=d.access_token;
-  localStorage.setItem("ramzes_smm_access_token",accessToken);
-  return accessToken
-}
 async function api(command,extra={},retry=true){
-  const token=await getAccessToken();
-  const r=await fetch(SUPABASE_URL+"/functions/v1/smm-agent",{method:"POST",headers:{"Content-Type":"application/json","apikey":SUPABASE_PUBLISHABLE_KEY,"Authorization":"Bearer "+token},body:JSON.stringify({command,brand_id:BRAND,...extra})});
+  const r=await fetch(SUPABASE_URL+"/functions/v1/smm-agent",{method:"POST",headers:{"Content-Type":"application/json","apikey":SUPABASE_PUBLISHABLE_KEY},body:JSON.stringify({command,brand_id:BRAND,...extra})});
   let d={};try{d=await r.json()}catch(_){}
-  if((r.status===401||d?.error?.includes?.("JWT")||d?.message?.includes?.("JWT"))&&retry){
-    accessToken="";
-    localStorage.removeItem("ramzes_smm_access_token");
-    return api(command,extra,false);
-  }
   if(!r.ok||d.error)throw new Error(d.error||d.message||("Ошибка API "+r.status));
   return d
 }
-async function createDraft(){try{const topic=document.getElementById("topic").value.trim();if(!topic)return log("Введите тему публикации.");const file=document.getElementById("media")?.files?.[0];const d=await api("create_draft",{topic});const tg=(d.variants||[]).find(v=>v.network==="telegram");if(!tg)throw new Error("Telegram-вариант не найден");if(file){log("Загружаю изображение через серверный загрузчик...");const token=await getAccessToken();const fd=new FormData();fd.append("brand_id",BRAND);fd.append("post_id",d.post.id);fd.append("variant_id",tg.id);fd.append("file",file,file.name);const up=await fetch(SUPABASE_URL+"/functions/v1/upload-media",{method:"POST",headers:{"Authorization":"Bearer "+token,"apikey":SUPABASE_PUBLISHABLE_KEY},body:fd});let ud={};try{ud=await up.json()}catch(_){}if(!up.ok||ud.error)throw new Error("Ошибка загрузки изображения: "+(ud.error||("HTTP "+up.status)));log("Изображение прикреплено.")}else log("Черновик создан: "+d.post.id);document.getElementById("topic").value="";if(document.getElementById("media"))document.getElementById("media").value="";const p=document.getElementById("mediaPreview");if(p)p.style.display="none";await loadReview()}catch(e){log(e.message)}}
+async function createDraft(){try{const topic=document.getElementById("topic").value.trim();if(!topic)return log("Введите тему публикации.");const file=document.getElementById("media")?.files?.[0];const d=await api("create_draft",{topic});const tg=(d.variants||[]).find(v=>v.network==="telegram");if(!tg)throw new Error("Telegram-вариант не найден");if(file){log("Загружаю изображение через серверный загрузчик...");const fd=new FormData();fd.append("brand_id",BRAND);fd.append("post_id",d.post.id);fd.append("variant_id",tg.id);fd.append("file",file,file.name);const up=await fetch(SUPABASE_URL+"/functions/v1/upload-media",{method:"POST",headers:{"apikey":SUPABASE_PUBLISHABLE_KEY},body:fd});let ud={};try{ud=await up.json()}catch(_){}if(!up.ok||ud.error)throw new Error("Ошибка загрузки изображения: "+(ud.error||("HTTP "+up.status)));log("Изображение прикреплено.")}else log("Черновик создан: "+d.post.id);document.getElementById("topic").value="";if(document.getElementById("media"))document.getElementById("media").value="";const p=document.getElementById("mediaPreview");if(p)p.style.display="none";await loadReview()}catch(e){log(e.message)}}
 async function loadReview(){try{const d=await api("list_review");render(d.posts||[]);log("Загружено: "+(d.posts||[]).length)}catch(e){log(e.message)}}
 async function approve(postId){
   try{
