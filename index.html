@@ -146,12 +146,21 @@ function schedule(postId){
   };
 }
 
+async function unschedulePost(postId){
+  if(!confirm("Удалить эту публикацию из запланированных?"))return;
+  try{
+    await api("unschedule_post",{post_id:postId});
+    log("Запланированная публикация удалена.");
+    await loadReview();
+  }catch(e){log("Ошибка удаления: "+e.message)}
+}
+
 function renderScheduled(posts){
   const el=document.getElementById("scheduled");
   const q=(posts||[]).filter(p=>p.status==="scheduled").sort((a,b)=>new Date(a.publish_at)-new Date(b.publish_at));
   if(!q.length){el.innerHTML="";return}
   el.innerHTML='<div style="margin-top:14px"><h3 style="margin:0 0 8px">🕒 Запланировано на сервере</h3>'+
-    q.map(x=>'<div class="post"><div>'+esc(x.topic)+'</div><div class="small">Публикация: <b>'+new Date(x.publish_at).toLocaleString("ru-RU")+'</b></div></div>').join("")+
+    q.map(x=>'<div class="post"><div>'+esc(x.topic)+'</div><div class="small">Публикация: <b>'+new Date(x.publish_at).toLocaleString("ru-RU")+'</b></div><button type="button" class="btn delete-draft" style="margin-top:9px" onclick="unschedulePost(\''+x.id+'\')">🗑 Удалить из запланированных</button></div>').join("")+
     '</div>';
 }
 
