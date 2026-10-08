@@ -11,33 +11,37 @@
 <section class="card settings"><details><summary>⚙️ Подключение панели</summary><p class="small">Supabase подключается автоматически. Ключ вручную вводить не нужно.</p></details></section>
 <section class="card"><div class="label">Лог</div><div id="log" class="log">Готов.</div></section>
 </main>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
 const BRAND="114e1c88-4850-41df-b192-1aa00b1782f1";
 const SUPABASE_URL="https://jgzzdsittnzomedvsspj.supabase.co";
 const SUPABASE_PUBLISHABLE_KEY="sb_publishable_z40zmd4oAy9jUr3Q4BgDYQ_-IpiIlJe";
-window.supabaseClient=window.supabase.createClient(SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY);
 let accessToken="";
+function log(x){const el=document.getElementById("log");if(el)el.textContent=new Date().toLocaleTimeString()+" — "+x}
 async function getAccessToken(){
   if(accessToken)return accessToken;
-  if(!window.supabaseClient)throw new Error("Supabase client не загружен");
-  const {data:{session}}=await window.supabaseClient.auth.getSession();
-  if(session?.access_token){accessToken=session.access_token;return accessToken}
-  const {data,error}=await window.supabaseClient.auth.signInAnonymously();
-  if(error)throw error;
-  accessToken=data.session.access_token;
-  return accessToken;
+  const saved=localStorage.getItem("ramzes_smm_access_token");
+  if(saved){accessToken=saved;return accessToken}
+  const r=await fetch(SUPABASE_URL+"/auth/v1/signup",{method:"POST",headers:{"Content-Type":"application/json","apikey":SUPABASE_PUBLISHABLE_KEY},body:JSON.stringify({})});
+  const d=await r.json();
+  if(!r.ok||!d.access_token)throw new Error(d.msg||d.error_description||"Не удалось войти в панель. Включи Anonymous Sign-Ins в Supabase.");
+  accessToken=d.access_token;
+  localStorage.setItem("ramzes_smm_access_token",accessToken);
+  return accessToken
 }
-function cfg(){return {url:SUPABASE_URL,key:accessToken}}
-function saveCfg(){log("Подключение настроено автоматически.");loadReview()}
-function log(x){document.getElementById("log").textContent=new Date().toLocaleTimeString()+" — "+x}
-async function api(command,extra={}){const c=cfg();const token=await getAccessToken();const r=await fetch(c.url+"/functions/v1/smm-agent",{method:"POST",headers:{"Content-Type":"application/json","apikey":SUPABASE_PUBLISHABLE_KEY,"Authorization":"Bearer "+token},body:JSON.stringify({command,brand_id:BRAND,...extra})});const d=await r.json();if(!r.ok||d.error)throw new Error(d.error||"Ошибка API");return d}
-async function createDraft(){try{const topic=document.getElementById("topic").value.trim();const d=await api("create_draft",{topic});log("Черновик создан: "+d.post.id);document.getElementById("topic").value="";loadReview()}catch(e){log(e.message)}}
+async function api(command,extra={}){
+  const token=await getAccessToken();
+  const r=await fetch(SUPABASE_URL+"/functions/v1/smm-agent",{method:"POST",headers:{"Content-Type":"application/json","apikey":SUPABASE_PUBLISHABLE_KEY,"Authorization":"Bearer "+token},body:JSON.stringify({command,brand_id:BRAND,...extra})});
+  let d={};try{d=await r.json()}catch(_){}
+  if(!r.ok||d.error)throw new Error(d.error||d.message||("Ошибка API "+r.status));
+  return d
+}
+async function createDraft(){try{const topic=document.getElementById("topic").value.trim();if(!topic)return log("Введите тему публикации.");const d=await api("create_draft",{topic});log("Черновик создан: "+d.post.id);document.getElementById("topic").value="";await loadReview()}catch(e){log(e.message)}}
 async function loadReview(){try{const d=await api("list_review");render(d.posts||[]);log("Загружено: "+(d.posts||[]).length)}catch(e){log(e.message)}}
-async function approve(variantId){try{await api("publish_telegram",{variant_id:variantId});log("Пост одобрен и опубликован в Telegram.");loadReview()}catch(e){log(e.message)}}
-async function publish(id){try{await api("publish_telegram",{variant_id:id});log("Опубликовано в Telegram.");loadReview()}catch(e){log(e.message)}}
-function render(posts){renderScheduled(posts);const el=document.getElementById("posts");if(!posts.length){el.innerHTML='<div class="muted" style="margin-top:10px">Пока нет черновиков.</div>';return}el.innerHTML=posts.map(p=>{const tg=(p.smm_post_variants||[]).find(v=>v.network==="telegram");return '<div class="post"><h3>'+esc(p.topic)+'</h3><div class="status">'+esc(p.status)+'</div><div class="variant">'+esc(tg?.text||"Telegram-вариант пока отсутствует")+'</div><div class="actions">'+(p.status==="review"?'<button class="btn purple" onclick="approve(\''+p.id+'\')">✓ Одобрить и опубликовать</button><button class="btn" onclick="schedule(''+p.id+'')">🕒 Отложить</button>':"")+(p.status==="approved"&&tg?'<button class="btn primary" onclick="publish(\''+tg.id+'\')">🚀 Опубликовать в Telegram</button>':"")+'</div></div>'}).join("")}
-function schedule(postId){const when=prompt("Введите дату и время публикации: ГГГГ-ММ-ДД ЧЧ:ММ");if(!when)return;const m=when.match(/^(\\d{4})-(\\d{2})-(\\d{2})[ T](\\d{2}):(\\d{2})$/);if(!m)return log("Неверный формат даты.");const dt=new Date(Number(m[1]),Number(m[2])-1,Number(m[3]),Number(m[4]),Number(m[5]));if(isNaN(dt)||dt<=new Date())return log("Дата и время должны быть в будущем.");api("schedule_post",{post_id:postId,publish_at:dt.toISOString()}).then(()=>{log("Публикация запланирована на "+dt.toLocaleString("ru-RU"));loadReview()}).catch(e=>log(e.message))}
+async function approve(variantId){try{await api("publish_telegram",{variant_id:variantId});log("Пост опубликован в Telegram.");await loadReview()}catch(e){log(e.message)}}
+async function publish(id){try{await api("publish_telegram",{variant_id:id});log("Опубликовано в Telegram.");await loadReview()}catch(e){log(e.message)}}
+function render(posts){renderScheduled(posts);const el=document.getElementById("posts");if(!posts.length){el.innerHTML='<div class="muted" style="margin-top:10px">Пока нет черновиков.</div>';return}el.innerHTML=posts.map(p=>{const tg=(p.smm_post_variants||[]).find(v=>v.network==="telegram");return '<div class="post"><h3>'+esc(p.topic)+'</h3><div class="status">'+esc(p.status)+'</div><div class="variant">'+esc(tg?.text||"Telegram-вариант пока отсутствует")+'</div><div class="actions">'+(p.status==="review"?'<button class="btn purple" onclick="approve(\''+p.id+'\')">✓ Одобрить и опубликовать</button><button class="btn" onclick="schedule(\''+p.id+'\')">🕒 Отложить</button>':"")+(p.status==="approved"&&tg?'<button class="btn primary" onclick="publish(\''+tg.id+'\')">🚀 Опубликовать в Telegram</button>':"")+'</div></div>'}).join("")}
+function schedule(postId){const when=prompt("Введите дату и время публикации: ГГГГ-ММ-ДД ЧЧ:ММ");if(!when)return;const m=when.match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})$/);if(!m)return log("Неверный формат даты.");const dt=new Date(Number(m[1]),Number(m[2])-1,Number(m[3]),Number(m[4]),Number(m[5]));if(isNaN(dt)||dt<=new Date())return log("Дата и время должны быть в будущем.");api("schedule_post",{post_id:postId,publish_at:dt.toISOString()}).then(()=>{log("Публикация запланирована на "+dt.toLocaleString("ru-RU"));loadReview()}).catch(e=>log(e.message))}
 function renderScheduled(posts){const el=document.getElementById("scheduled");const q=(posts||[]).filter(p=>p.status==="scheduled").sort((a,b)=>new Date(a.publish_at)-new Date(b.publish_at));if(!q.length){el.innerHTML="";return}el.innerHTML='<div style="margin-top:14px"><h3 style="margin:0 0 8px">🕒 Запланировано на сервере</h3>'+q.map(x=>'<div class="post"><div>'+esc(x.topic)+'</div><div class="small">Публикация: <b>'+new Date(x.publish_at).toLocaleString("ru-RU")+'</b></div></div>').join("")+'</div>'}
 function esc(s){return String(s??"").replace(/[&<>"]/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[m]))}
-</script></body></html>
+document.addEventListener("DOMContentLoaded",()=>{log("Подключение к Supabase...");loadReview()});
+</script></script></body></html>
