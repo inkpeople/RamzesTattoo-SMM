@@ -44,5 +44,5 @@ function schedule(postId){const when=prompt("Введите дату и врем
 function renderScheduled(posts){const el=document.getElementById("scheduled");const q=(posts||[]).filter(p=>p.status==="scheduled").sort((a,b)=>new Date(a.publish_at)-new Date(b.publish_at));if(!q.length){el.innerHTML="";return}el.innerHTML='<div style="margin-top:14px"><h3 style="margin:0 0 8px">🕒 Запланировано на сервере</h3>'+q.map(x=>'<div class="post"><div>'+esc(x.topic)+'</div><div class="small">Публикация: <b>'+new Date(x.publish_at).toLocaleString("ru-RU")+'</b></div></div>').join("")+'</div>'}
 function esc(s){return String(s??"").replace(/[&<>"]/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[m]))}
 document.addEventListener("DOMContentLoaded",()=>{log("Подключение к Supabase...");loadReview()});
-</script>document.getElementById("media")?.addEventListener("change",e=>{const f=e.target.files[0];if(f)document.getElementById("mediaPreview").textContent="📷 "+f.name+" — изображение будет прикреплено к посту."});
+document.getElementById("media")?.addEventListener("change",e=>{const f=e.target.files[0];if(f)document.getElementById("mediaPreview").textContent="📷 "+f.name+" — изображение будет прикреплено к посту."});
 </script></body></html>
