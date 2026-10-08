@@ -18,15 +18,7 @@ const SUPABASE_PUBLISHABLE_KEY="sb_publishable_z40zmd4oAy9jUr3Q4BgDYQ_-IpiIlJe";
 let accessToken="";
 function log(x){const el=document.getElementById("log");if(el)el.textContent=new Date().toLocaleTimeString()+" — "+x}
 async function getAccessToken(){
-  if(accessToken)return accessToken;
-  const saved=localStorage.getItem("ramzes_smm_access_token");
-  if(saved){accessToken=saved;return accessToken}
-  const r=await fetch(SUPABASE_URL+"/auth/v1/signup",{method:"POST",headers:{"Content-Type":"application/json","apikey":SUPABASE_PUBLISHABLE_KEY},body:JSON.stringify({})});
-  const d=await r.json();
-  if(!r.ok||!d.access_token)throw new Error(d.msg||d.error_description||"Не удалось войти в панель. Включи Anonymous Sign-Ins в Supabase.");
-  accessToken=d.access_token;
-  localStorage.setItem("ramzes_smm_access_token",accessToken);
-  return accessToken
+  return SUPABASE_PUBLISHABLE_KEY
 }
 async function api(command,extra={}){
   const token=await getAccessToken();
