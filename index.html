@@ -113,7 +113,8 @@ function render(posts){
     return '<div class="post"><h3>'+esc(p.topic)+'</h3><div class="status">'+esc(p.status)+'</div><div class="variant">'+esc(tg?.text||"Telegram-вариант пока отсутствует")+'</div><div class="actions">'+
       (p.status==="review"?'<button class="btn purple" onclick="approve(\''+p.id+'\')">✓ Одобрить и опубликовать</button><button class="btn" onclick="schedule(\''+p.id+'\')">🕒 Отложить</button>':"")+
       (p.status==="approved"&&tg?'<button class="btn primary" onclick="publish(\''+tg.id+'\')">🚀 Опубликовать в Telegram</button>':"")+
-      (["draft","review"].includes(p.status)?'<button type="button" class="btn delete-draft" onclick="deletePost(\''+p.id+'\')">🗑 Убрать из черновика</button>':"")+
+      (["draft","review"].includes(p.status)?'<button type="button" class="btn delete-draft" onclick="deletePost(\''+p.id+'\')">🗑 Удалить черновик</button>':"")+
+      (p.status==="published"?'<button type="button" class="btn delete-draft" onclick="deletePost(\''+p.id+'\')">🗑 Удалить публикацию</button>':"")+
       '</div></div>';
   }).join("");
 }
