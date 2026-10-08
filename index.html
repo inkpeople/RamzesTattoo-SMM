@@ -13,10 +13,10 @@
 </main>
 <script>
 const BRAND="114e1c88-4850-41df-b192-1aa00b1782f1";
-const saved=JSON.parse(localStorage.getItem("ramzes_smm_cfg")||"{}");
-if(saved.url)document.getElementById("url").value=saved.url;if(saved.key)document.getElementById("key").value=saved.key;
-function cfg(){return {url:document.getElementById("url").value.replace(/\/$/,""),key:document.getElementById("key").value}}
-function saveCfg(){localStorage.setItem("ramzes_smm_cfg",JSON.stringify(cfg()));log("Настройки сохранены.");loadReview()}
+function restoreCfg(){try{const saved=JSON.parse(localStorage.getItem("ramzes_smm_cfg")||sessionStorage.getItem("ramzes_smm_cfg")||"{}");if(saved.url)document.getElementById("url").value=saved.url;if(saved.key)document.getElementById("key").value=saved.key}catch(e){}}
+restoreCfg();
+function cfg(){return {url:document.getElementById("url").value.trim().replace(/\/$/,""),key:document.getElementById("key").value.trim()}}
+function saveCfg(){const value=JSON.stringify(cfg());try{localStorage.setItem("ramzes_smm_cfg",value)}catch(e){}try{sessionStorage.setItem("ramzes_smm_cfg",value)}catch(e){}restoreCfg();log(cfg().key?"Настройки сохранены. Ключ сохранён в браузере.":"Укажи Supabase anon key.");if(cfg().key)loadReview()}
 function log(x){document.getElementById("log").textContent=new Date().toLocaleTimeString()+" — "+x}
 async function api(command,extra={}){const c=cfg();if(!c.key)throw new Error("Добавь Supabase anon key в настройках");const r=await fetch(c.url+"/functions/v1/smm-agent",{method:"POST",headers:{"Content-Type":"application/json","apikey":c.key,"Authorization":"Bearer "+c.key},body:JSON.stringify({command,brand_id:BRAND,...extra})});const d=await r.json();if(!r.ok||d.error)throw new Error(d.error||"Ошибка API");return d}
 async function createDraft(){try{const topic=document.getElementById("topic").value.trim();const d=await api("create_draft",{topic});log("Черновик создан: "+d.post.id);document.getElementById("topic").value="";loadReview()}catch(e){log(e.message)}}
