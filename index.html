@@ -8,17 +8,30 @@
 <section class="card"><div class="grid"><div class="net"><b>Telegram</b><span>готов</span></div><div class="net"><b>VK</b><span>подключение</span></div><div class="net"><b>Instagram</b><span>Metricool</span></div></div></section>
 <section class="card"><div class="label">Тема публикации</div><textarea id="topic" placeholder="Например: свободная дата на татуировку на этой неделе"></textarea><div class="row"><button class="btn primary" onclick="createDraft()">Создать черновик</button><button class="btn" onclick="loadReview()">Обновить</button></div></section>
 <section class="card"><h3 style="margin:0">На согласовании</h3><div id="posts"><div class="muted" style="margin-top:10px">Нажми «Обновить»</div></div><div id="scheduled"></div></section>
-<section class="card settings"><details><summary>⚙️ Подключение панели</summary><p class="small">Нужен только публичный Supabase anon key. Service role key и токен Telegram сюда не вводить.</p><input id="url" value="https://jgzzdsittnzomedvsspj.supabase.co" placeholder="Supabase URL"><input id="key" type="password" placeholder="Supabase anon key"><button class="btn" onclick="saveCfg()">Сохранить</button></details></section>
+<section class="card settings"><details><summary>⚙️ Подключение панели</summary><p class="small">Supabase подключается автоматически. Ключ вручную вводить не нужно.</p></details></section>
 <section class="card"><div class="label">Лог</div><div id="log" class="log">Готов.</div></section>
 </main>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
 const BRAND="114e1c88-4850-41df-b192-1aa00b1782f1";
-function restoreCfg(){try{const saved=JSON.parse(localStorage.getItem("ramzes_smm_cfg")||sessionStorage.getItem("ramzes_smm_cfg")||"{}");if(saved.url)document.getElementById("url").value=saved.url;if(saved.key)document.getElementById("key").value=saved.key}catch(e){}}
-restoreCfg();
-function cfg(){return {url:document.getElementById("url").value.trim().replace(/\/$/,""),key:document.getElementById("key").value.trim()}}
-function saveCfg(){const value=JSON.stringify(cfg());try{localStorage.setItem("ramzes_smm_cfg",value)}catch(e){}try{sessionStorage.setItem("ramzes_smm_cfg",value)}catch(e){}restoreCfg();log(cfg().key?"Настройки сохранены. Ключ сохранён в браузере.":"Укажи Supabase anon key.");if(cfg().key)loadReview()}
+const SUPABASE_URL="https://jgzzdsittnzomedvsspj.supabase.co";
+window.supabaseClient=window.supabase.createClient(SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY);
+const SUPABASE_PUBLISHABLE_KEY="sb_publishable_z40zmd4oAy9jUr3Q4BgDYQ_-IpiIlJe";
+let accessToken="";
+async function getAccessToken(){
+  if(accessToken)return accessToken;
+  if(!window.supabaseClient)throw new Error("Supabase client не загружен");
+  const {data:{session}}=await window.supabaseClient.auth.getSession();
+  if(session?.access_token){accessToken=session.access_token;return accessToken}
+  const {data,error}=await window.supabaseClient.auth.signInAnonymously();
+  if(error)throw error;
+  accessToken=data.session.access_token;
+  return accessToken;
+}
+function cfg(){return {url:SUPABASE_URL,key:accessToken}}
+function saveCfg(){log("Подключение настроено автоматически.");loadReview()}
 function log(x){document.getElementById("log").textContent=new Date().toLocaleTimeString()+" — "+x}
-async function api(command,extra={}){const c=cfg();if(!c.key)throw new Error("Добавь Supabase anon key в настройках");const r=await fetch(c.url+"/functions/v1/smm-agent",{method:"POST",headers:{"Content-Type":"application/json","apikey":c.key,"Authorization":"Bearer "+c.key},body:JSON.stringify({command,brand_id:BRAND,...extra})});const d=await r.json();if(!r.ok||d.error)throw new Error(d.error||"Ошибка API");return d}
+async function api(command,extra={}){const c=cfg();const token=await getAccessToken();const r=await fetch(c.url+"/functions/v1/smm-agent",{method:"POST",headers:{"Content-Type":"application/json","apikey":SUPABASE_PUBLISHABLE_KEY,"Authorization":"Bearer "+token},body:JSON.stringify({command,brand_id:BRAND,...extra})});const d=await r.json();if(!r.ok||d.error)throw new Error(d.error||"Ошибка API");return d}
 async function createDraft(){try{const topic=document.getElementById("topic").value.trim();const d=await api("create_draft",{topic});log("Черновик создан: "+d.post.id);document.getElementById("topic").value="";loadReview()}catch(e){log(e.message)}}
 async function loadReview(){try{const d=await api("list_review");render(d.posts||[]);log("Загружено: "+(d.posts||[]).length)}catch(e){log(e.message)}}
 async function approve(variantId){try{await api("publish_telegram",{variant_id:variantId});log("Пост одобрен и опубликован в Telegram.");loadReview()}catch(e){log(e.message)}}
