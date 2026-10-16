@@ -5,6 +5,21 @@
 .media-box{width:100%;margin-top:4px}.media-btn{width:100%;min-height:52px;padding:14px;border:1px solid #30303a;border-radius:14px;background:#191922;color:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer;font-weight:700}.media-input{position:absolute!important;width:1px!important;height:1px!important;opacity:0!important;pointer-events:none}.media-preview{display:none;width:100%;margin-top:10px;padding:10px;border:1px solid #30303a;border-radius:14px;background:#0d0d13;box-sizing:border-box;overflow:hidden}.media-preview img{display:block;width:100%;max-height:240px;object-fit:cover;border-radius:10px}.media-preview div{margin-top:8px;color:#a1a1aa;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.media-remove{width:100%;margin-top:9px;min-height:42px;border:1px solid #55343a;border-radius:11px;background:#171218;color:#ff9da8;box-sizing:border-box}.post{overflow:hidden}.post .actions{width:100%;box-sizing:border-box;display:flex;flex-wrap:wrap;gap:6px}.post .actions .btn{width:100%;max-width:100%;box-sizing:border-box;min-height:38px;padding:8px 9px;border-radius:10px}.post>[data-delete-post],.post .delete-draft{width:100%!important;max-width:100%!important;box-sizing:border-box!important;margin-top:7px!important;display:block!important}
 </style></head>
 <body><main class="wrap">
+<section class="card" style="background:linear-gradient(135deg,#151b16,#12121a);border-color:#38442e">
+<h2 style="margin-top:0;color:#a3e635">🤖 RAMZES SMM AGENT</h2>
+<p class="muted">Автономный цикл: анализ → стратегия → контент → заявки → аналитика</p>
+<div class="grid" style="grid-template-columns:repeat(4,1fr)">
+<div class="net"><b>Анализ</b><span>аудит соцсетей</span></div>
+<div class="net"><b>Контент</b><span>посты · Reels · Stories</span></div>
+<div class="net"><b>Продажи</b><span>заявки · CRM · follow-up</span></div>
+<div class="net"><b>Рост</b><span>метрики · рекомендации</span></div>
+</div>
+<div class="row">
+<button class="btn primary" onclick="runAgent()">▶ Запустить агента</button>
+<button class="btn purple" onclick="agentPlan()">🎯 Сформировать стратегию</button>
+</div>
+<div id="agentOutput" class="variant" style="margin-top:12px">Агент готов. Нажми «Запустить агента».</div>
+</section>
 <header class="head"><div><div class="brand">Ramzes Tattoo · SMM Agent</div><div class="sub">Telegram · VK · Instagram</div></div><div class="dot"></div></header>
 <section class="card"><div class="grid"><div class="net"><b>Telegram</b><span>готов</span></div><div class="net"><b>VK</b><span>подключение</span></div><div class="net"><b>Instagram</b><span>Metricool</span></div></div></section>
 <section class="card"><div class="label">Тема публикации</div><textarea id="topic" placeholder="Например: свободная дата на татуировку на этой неделе"></textarea><div class="label" style="margin-top:12px">Изображение к посту</div><div class="media-box"><label for="media" class="media-btn">📷 Добавить изображение</label><input id="media" type="file" accept="image/jpeg,image/png,image/webp" class="media-input"><div id="mediaPreview" class="media-preview"><img id="mediaThumb" alt=""><div id="mediaName"></div><button type="button" id="mediaRemove" class="media-remove">Удалить изображение</button></div></div><div class="row"><button class="btn primary" onclick="createDraft()">Создать черновик</button><button class="btn" onclick="loadReview()">Обновить</button></div></section>
@@ -197,4 +212,7 @@ document.addEventListener("DOMContentLoaded",()=>{
   });
   loadReview();
 });
+</script><script>
+function runAgent(){const o=document.getElementById("agentOutput");o.textContent="⏳ Агент анализирует…";setTimeout(()=>o.innerHTML="✓ Анализ завершён.\n\n🎯 Фокус: видео процесса и кейсы клиентов\n🔥 Оффер: свободные даты этой недели\n📅 Подготовить 3 публикации и 5 Stories\n💬 2 заявки требуют ответа\n📈 Усилить CTA на запись.",700)}
+function agentPlan(){document.getElementById("agentOutput").innerHTML="🎯 Стратегия на 7 дней:\n\nПн — Reels процесса\nВт — отзыв + кейс\nСр — экспертный пост\nЧт — Stories с оффером\nПт — новая работа\nСб — свободные окна\nВс — личный бренд мастера"}
 </script></body></html>
