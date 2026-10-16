@@ -246,6 +246,6 @@ function smmContent(){document.getElementById('smmResult').innerHTML='✦ Кон
 </section>
 <script>
 function apToggle(){const on=document.getElementById("apToggle").checked;document.getElementById("apState").textContent=on?"Автопилот включён":"Автопилот выключен";document.getElementById("apLog").textContent=on?"🟢 Режим включён. Новые публикации будут сначала попадать на согласование.":"Агент ожидает запуска."}
-function apRun(){const l=document.getElementById("apLog");l.textContent="⏳ Анализирую подключённые каналы…";setTimeout(()=>l.textContent="✓ Анализ завершён\n✓ Найдены лучшие форматы\n✓ Сформирована стратегия\n✓ Подготовлены 3 публикации и 5 Stories\n→ Следующий шаг: согласовать публикации",900)}
+async function apRun(){const l=document.getElementById("apLog");l.textContent="⏳ Передаю задачу реальному AI-агенту…";if(window.ramzesAskAI){await window.ramzesAskAI("Проведи SMM-анализ для тату-мастера Ramzes в Новосибирске. Сформируй конкретную стратегию на 7 дней, 3 поста, 3 идеи Reels, 5 Stories, оффер и CTA. Не выдумывай статистику.");l.textContent="✓ AI-анализ выполнен. Открой чат агента ниже для результата и дальнейших действий."}else{l.textContent="❌ AI-модуль ещё загружается. Обнови страницу."}}
 function apPlan(){document.getElementById("apLog").textContent="🎯 План на 7 дней создан:\nПн — Reels процесса\nВт — кейс клиента\nСр — экспертный пост\nЧт — Stories + оффер\nПт — новая работа\nСб — свободные даты\nВс — личный бренд"}
 </script></body></html>
