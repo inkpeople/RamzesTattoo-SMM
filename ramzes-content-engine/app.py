@@ -1,4 +1,6 @@
 import os
+import json
+import re
 import logging
 import threading
 from datetime import datetime
@@ -25,6 +27,54 @@ APP_URL = os.getenv("RENDER_EXTERNAL_URL", "").rstrip("/")
 
 TG_API = f"https://api.telegram.org/bot{BOT_TOKEN}" if BOT_TOKEN else ""
 OR_API = "https://openrouter.ai/api/v1/chat/completions"
+
+
+DAILY_TOPIC_DOMAINS = [
+    ("Визуальный язык стилей", ["Чем графика отличается по визуальному языку от реализма", "Как распознать выразительный графический стиль"]),
+    ("Цветовые решения", ["Как ограниченная палитра влияет на настроение эскиза", "Как выбирать цветовую гамму без погони за модой"]),
+    ("Выбор мастера и портфолио", ["На что смотреть в портфолио кроме красивой фотографии", "Почему важно оценивать целостность работ мастера"]),
+    ("История и культура татуировки", ["Как менялись визуальные традиции татуировки", "Откуда пришли знакомые мотивы в тату-культуре"]),
+    ("Источники художественного вдохновения", ["Как художники превращают обычные предметы в образы", "Почему насмотренность важна для поиска оригинальной идеи"]),
+    ("Подготовка к консультации", ["Что полезно заранее обдумать перед обсуждением идеи", "Как собрать референсы, чтобы объяснить настроение будущей работы"]),
+    ("Согласование проекта", ["Почему эскиз — это предмет диалога, а не экзамен", "Какие детали важно обсудить до утверждения эскиза"]),
+    ("Творческий процесс", ["Как из нескольких визуальных заметок рождается цельная идея", "Зачем художнику делать несколько поисковых вариантов"]),
+    ("Юмор о ремесле", ["Комичные противоречия между творческим замыслом и дедлайном", "Когда художник пытается объяснить идею самому себе"]),
+    ("Масштаб и детализация", ["Почему количество деталей должно соответствовать масштабу", "Как визуальная иерархия помогает не перегружать рисунок"]),
+    ("Авторский подход", ["Почему вдохновение референсом не равно копированию", "Где проходит граница между ориентиром и самостоятельной работой"]),
+    ("Организация творческой работы", ["Зачем разделять поиск идеи, эскиз и финальную доработку", "Как заметки помогают не потерять сильную задумку"])
+]
+DAILY_SLOT_NAMES = [
+    "Провокация / дискуссия для Threads",
+    "Экспертная польза для Threads",
+    "Позиция и авторский взгляд RAMZES для Threads",
+    "Юмор для Threads",
+    "Продажа через конкретную ценность для Threads",
+    "Отдельная тема короткого видео"
+]
+def build_daily_topic_plan(today):
+    day_number = today.toordinal()
+    start = day_number % len(DAILY_TOPIC_DOMAINS)
+    selected = [DAILY_TOPIC_DOMAINS[(start + offset * 2) % len(DAILY_TOPIC_DOMAINS)] for offset in range(6)]
+    rotation = day_number // len(DAILY_TOPIC_DOMAINS)
+    lines = [
+        "ЖЁСТКИЙ ПЛАН ТЕМ НА СЕГОДНЯ. Он сформирован программно: категории уже уникальны.",
+        "Каждый материал обязан остаться в своей категории. Не переносить темы между разделами.",
+        ""
+    ]
+    for index, (slot, domain) in enumerate(zip(DAILY_SLOT_NAMES, selected)):
+        category, variants = domain
+        topic = variants[(rotation + index) % len(variants)]
+        lines.append(f"{index + 1}. {slot}")
+        lines.append(f"   Категория: {category}")
+        lines.append(f"   Центральная тема: {topic}")
+    lines.extend([
+        "",
+        "Шесть категорий выше различны. Не возвращайся к одной общей теме.",
+        "Видео раскрывает только шестую тему, не повторяя пять постов.",
+        "Если тема пересекается с недавней публикацией из истории, замени её другой темой внутри той же категории."
+    ])
+    return "\n".join(lines)
+
 
 PLANNER_PROMPT = """Ты — контент-стратег и редактор тем для тату-мастера RAMZES. Сейчас НЕ пиши публикации. Твоя единственная задача — составить тематическую архитектуру ежедневного контент-пакета.
 
@@ -241,15 +291,18 @@ def remember(chat_id, role, content):
 
 def ask_ai(chat_id, user_text):
     if not OPENROUTER_API_KEY:
-        send_text(chat_id, "Не настроен OPENROUTER_API_KEY на хостинге. Добавь его в переменные окружения сервиса.")
+        send_text(chat_id, "Не настроен OPENROUTER_API_KEY на хостинге.")
         return
 
     with memory_lock:
         history = list(memory.get(str(chat_id), []))
 
-    today_context = datetime.now(ZoneInfo("Asia/Novosibirsk")).strftime("%d.%m.%Y")
-    seasonal_context = f"\n\nАКТУАЛЬНЫЙ КОНТЕКСТ: сегодня {today_context} по времени Новосибирска. Учитывай реальную дату и сезон. Не выдумывай расписание, свободные даты, цены, статистику или события."
-
+    now = datetime.now(ZoneInfo("Asia/Novosibirsk"))
+    today_context = now.strftime("%d.%m.%Y")
+    seasonal_context = (
+        f"\n\nАКТУАЛЬНЫЙ КОНТЕКСТ: сегодня {today_context} по времени Новосибирска. "
+        "Не выдумывай расписание, свободные даты, цены, статистику или события."
+    )
     headers = {
         "Authorization": f"Bearer {OPENROUTER_API_KEY}",
         "Content-Type": "application/json",
@@ -261,95 +314,105 @@ def ask_ai(chat_id, user_text):
         call_headers = dict(headers)
         call_headers["X-Title"] = title
         result = requests.post(
-            OR_API,
-            headers=call_headers,
-            json={
-                "model": MODEL,
-                "messages": messages,
-                "temperature": temperature,
-                "max_tokens": max_tokens
-            },
+            OR_API, headers=call_headers,
+            json={"model": MODEL, "messages": messages, "temperature": temperature, "max_tokens": max_tokens},
             timeout=timeout
         )
         result.raise_for_status()
         payload = result.json()
-        content = payload["choices"][0]["message"]["content"]
-        if not content or not content.strip():
+        answer = payload["choices"][0]["message"]["content"]
+        if not answer or not answer.strip():
             raise RuntimeError(f"{title}: модель вернула пустой ответ")
-        return content.strip()
+        return answer.strip()
+
+    def edit_draft(draft, plan, correction=""):
+        instruction = (
+            "Ты выпускающий редактор. Подготовь ровно пять Threads-постов и один сценарий видео. "
+            "Сохрани порядок разделов. Каждый раздел должен строго соответствовать своей категории "
+            "и центральной теме из плана. Не допускай смысловых повторов. Если тема ушла в соседнюю "
+            "категорию, перепиши раздел по назначенной теме. Удали выдуманные истории, цитаты, отзывы, "
+            "технические гарантии, неподтверждённые советы, цены и даты. Не приписывай RAMZES личные "
+            "события и чувства. Верни только готовый контент.\n\n"
+            "ПЛАН ТЕМ:\n" + plan + "\n\n"
+        )
+        if correction:
+            instruction += "ЗАМЕЧАНИЯ ПРОВЕРКИ — ИСПРАВЬ ВСЁ:\n" + correction + "\n\n"
+        instruction += "ЧЕРНОВИК:\n" + draft
+        return request_ai(
+            [{"role": "system", "content": SYSTEM_PROMPT + seasonal_context + "\n\n" + EDITOR_PROMPT},
+             {"role": "user", "content": instruction}],
+            0.15, 3500, "RAMZES CONTENT ENGINE EDITOR"
+        )
+
+    def audit_package(plan, package):
+        prompt = (
+            "Проверь готовый пакет по плану. Нужно ровно пять разных Threads-постов и один сценарий видео. "
+            "Сравни смысл, а не формулировки: ни два поста, ни видео не должны говорить об одном предмете. "
+            "Каждый раздел должен соответствовать своей назначенной категории. Проверь выдуманные истории, "
+            "цитаты, отзывы, неподтверждённые факты, медицинские/технические обещания, придуманные цены и даты. "
+            "При любой проблеме pass=false. Ответь только валидным JSON: "
+            '{"pass": true, "issues": []} или {"pass": false, "issues": ["конкретная проблема"]}.\n\n'
+            "ПЛАН:\n" + plan + "\n\nКОНТЕНТ:\n" + package
+        )
+        raw = request_ai(
+            [{"role": "system", "content": "Ты строгий независимый QA-аудитор. Не ставь pass=true из вежливости."},
+             {"role": "user", "content": prompt}],
+            0.0, 600, "RAMZES CONTENT QUALITY GATE"
+        )
+        match = re.search(r"\{[\s\S]*\}", raw)
+        if not match:
+            return False, ["Аудитор не вернул корректный JSON."]
+        try:
+            result = json.loads(match.group(0))
+        except json.JSONDecodeError:
+            return False, ["Аудитор вернул повреждённый JSON."]
+        issues = result.get("issues", [])
+        if not isinstance(issues, list):
+            issues = [str(issues)]
+        return result.get("pass") is True and not issues, issues
 
     try:
         is_daily = user_text.strip() == ACTIONS["daily"]
-        plan = ""
-
-        # Stage 1: build an independent topic map before writing any copy.
-        if is_daily:
-            planner_messages = [
-                {"role": "system", "content": SYSTEM_PROMPT + seasonal_context + "\n\n" + PLANNER_PROMPT}
-            ] + history + [{
-                "role": "user",
-                "content": "Составь тематический план для сегодняшнего пакета. Внимательно изучи историю, чтобы не повторять недавние публикации. Пока не пиши сами посты."
-            }]
-            plan = request_ai(
-                planner_messages,
-                temperature=0.75,
-                max_tokens=1200,
-                title="RAMZES CONTENT STRATEGIST"
-            )
-
-        # Stage 2: create the content from the approved topic architecture.
+        plan = build_daily_topic_plan(now.date()) if is_daily else ""
         generation_instruction = user_text
-        if plan:
+        if is_daily:
             generation_instruction += (
-                "\n\nУТВЕРЖДЁННЫЙ ПЛАН ТЕМ — СТРОГО СЛЕДУЙ ЕМУ. "
-                "Не меняй темы местами, не объединяй их и не возвращайся к одной общей теме. "
-                "Каждый материал должен раскрывать только назначенную ему область. "
-                "Если тема не получается, выбери другой конкретный угол внутри этой области, "
-                "но не заимствуй предмет разговора у соседнего материала. "
-                "Видео должно быть на шестую отдельную тему. "
-                "Не включай план, служебные пояснения или итоговый отчёт в ответ.\n\n"
-                + plan
+                "\n\n" + plan + "\n\n"
+                "Создай ровно пять полноценных Threads-публикаций и один сценарий видео. "
+                "Не меняй категории и темы. Не своди их к композиции тела или адаптации эскиза. "
+                "Каждый раздел раскрывает только назначенную тему. Не добавляй план или отчёт."
             )
 
-        messages = (
-            [{"role": "system", "content": SYSTEM_PROMPT + seasonal_context}]
-            + history
-            + [{"role": "user", "content": generation_instruction}]
-        )
         draft = request_ai(
-            messages,
-            temperature=0.9,
-            max_tokens=3500,
-            title="RAMZES CONTENT ENGINE DRAFT"
+            [{"role": "system", "content": SYSTEM_PROMPT + seasonal_context}]
+            + history + [{"role": "user", "content": generation_instruction}],
+            0.85, 3500, "RAMZES CONTENT ENGINE DRAFT"
         )
 
-        # Stage 3: strict editorial gate. It receives the approved plan as a contract.
-        editor_instruction = (
-            "Проведи независимую редакторскую проверку всего пакета. "
-            "Не ограничивайся корректурой: если тема повторяется, материал слабый "
-            "или содержит выдумку/сомнительный факт — перепиши соответствующий раздел с нуля. "
-            "Сохрани точное количество материалов и все обязательные разделы. "
-            "Сверь центральную тему каждого материала с планом и не допускай пересечений. "
-            "Удаляй обещания долговечности, гарантии результата, выдуманные диалоги и клиентские истории. "
-            "Не добавляй в конце раздел «Итог», отчёт о правках, оценку или пояснения. "
-            "Верни только чистовой вариант:\n\n"
-        )
-        if plan:
-            editor_instruction += "УТВЕРЖДЁННЫЙ ПЛАН ТЕМ (обязательный ориентир):\n" + plan + "\n\n"
-        editor_instruction += "ЧЕРНОВИК:\n" + draft
+        if is_daily:
+            answer = edit_draft(draft, plan)
+            passed, issues = audit_package(plan, answer)
+            if not passed:
+                log.warning("Daily package failed QA; retrying. Issues: %s", issues)
+                retry_instruction = (
+                    generation_instruction + "\n\nПРЕДЫДУЩАЯ ВЕРСИЯ НЕ ПРОШЛА ПРОВЕРКУ. "
+                    "Создай новую версию с нуля и исправь все замечания:\n- "
+                    + "\n- ".join(str(item) for item in issues)
+                )
+                retry_draft = request_ai(
+                    [{"role": "system", "content": SYSTEM_PROMPT + seasonal_context}]
+                    + history + [{"role": "user", "content": retry_instruction}],
+                    0.9, 3500, "RAMZES CONTENT ENGINE RETRY"
+                )
+                answer = edit_draft(retry_draft, plan, "\n".join(str(item) for item in issues))
+                passed, issues = audit_package(plan, answer)
 
-        review_messages = [
-            {"role": "system", "content": SYSTEM_PROMPT + seasonal_context + "\n\n" + EDITOR_PROMPT}
-        ] + [{
-            "role": "user",
-            "content": editor_instruction
-        }]
-        answer = request_ai(
-            review_messages,
-            temperature=0.2,
-            max_tokens=3500,
-            title="RAMZES CONTENT ENGINE EDITOR"
-        )
+            if not passed:
+                log.error("Daily package rejected after retry: %s", issues)
+                send_text(chat_id, "Не отправил пакет: он дважды не прошёл проверку на повторы или достоверность. Нажми «Контент на сегодня» ещё раз — подготовлю новый вариант.")
+                return
+        else:
+            answer = edit_draft(draft, "", "")
 
         remember(chat_id, "user", user_text)
         remember(chat_id, "assistant", answer)
