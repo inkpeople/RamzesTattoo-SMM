@@ -1,3 +1,4 @@
+import copy
 import hashlib
 import json
 import logging
@@ -159,7 +160,7 @@ def clear_chat_history(telegram_user_id):
 def load_brand_profile(telegram_user_id):
     uid = _uid(telegram_user_id)
     if uid is None:
-        return dict(DEFAULT_BRAND_PROFILE)
+        return copy.deepcopy(DEFAULT_BRAND_PROFILE)
     rows = _request(
         "GET",
         "ramzes_content_engine_brand_profile",
@@ -173,7 +174,7 @@ def load_brand_profile(telegram_user_id):
             merged = dict(DEFAULT_BRAND_PROFILE)
             merged.update(profile)
             return merged
-    profile = dict(DEFAULT_BRAND_PROFILE)
+    profile = copy.deepcopy(DEFAULT_BRAND_PROFILE)
     save_brand_profile(telegram_user_id, profile)
     return profile
 
