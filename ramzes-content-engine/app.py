@@ -10,6 +10,14 @@ from concurrent.futures import ThreadPoolExecutor
 import requests
 from flask import Flask, request, jsonify
 
+from storage import (
+    load_chat_history, save_chat_history, clear_chat_history,
+    load_brand_profile, add_brand_fact, build_brand_context,
+    load_recent_content, build_recent_content_context,
+    save_content_pack, extract_topics, topic_repeat_issues,
+    load_recent_metrics, save_metric, parse_metric_message,
+)
+
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("ramzes-content-engine")
 
@@ -350,7 +358,8 @@ MENU = [
     [("🎬 Сценарии Reels", "reels"), ("🔎 Тренды и темы", "trends")],
     [("🧬 Личный бренд RAMZES", "strategy"), ("📊 Анализ статистики", "analytics")],
     [("💰 Привлечение клиентов", "clients"), ("✍️ Рекламные публикации", "ads")],
-    [("🎨 Идеи съёмок", "shoots"), ("♻️ Очистить контекст", "reset")],
+    [("📚 Библиотека", "library"), ("🧬 Профиль бренда", "profile")],
+    [("📈 Внести статистику", "metric"), ("♻️ Очистить контекст", "reset")],
 ]
 
 ACTIONS = {
@@ -439,7 +448,86 @@ def remember(chat_id, role, content):
     with memory_lock:
         history = memory.setdefault(str(chat_id), [])
         history.append({"role": role, "content": content})
-        memory[str(chat_id)] = history[-24:]
+        memory[str(chat_id)] = history[-40:]
+        snapshot = list(memory[str(chat_id)])
+    save_chat_history(chat_id, OWNER_ID or chat_id, snapshot)
+
+
+def send_brand_profile(chat_id):
+    profile = load_brand_profile(OWNER_ID or chat_id)
+    facts = profile.get("confirmed_facts") or []
+    personal = profile.get("personal_material") or []
+    workflows = profile.get("confirmed_workflows") or []
+    text = (
+        "🧬 ПРОФИЛЬ ЛИЧНОГО БРЕНДА RAMZES\n\n"
+        + str(profile.get("positioning", "")) + "\n\n"
+        + "ПОДТВЕРЖДЁННЫЕ ФАКТЫ:\n"
+        + ("\n".join("• " + str(x) for x in facts) if facts else "Пока нет.")
+        + "\n\nЛИЧНЫЙ МАТЕРИАЛ:\n"
+        + ("\n".join("• " + str(x) for x in personal) if personal else "Пока не добавлен.")
+        + "\n\nПОДТВЕРЖДЁННЫЕ РАБОЧИЕ ПРОЦЕССЫ:\n"
+        + ("\n".join("• " + str(x) for x in workflows) if workflows else "Пока не добавлены.")
+        + "\n\nЧтобы добавить факт, отправь: /fact твой факт.\n"
+        + "Можно также написать: «Запомни: ...»"
+    )
+    send_text(chat_id, text)
+
+
+def send_content_library(chat_id):
+    items = load_recent_content(OWNER_ID or chat_id, 12)
+    if not items:
+        send_text(chat_id, "📚 Библиотека пока пуста. После генерации контент-пакеты будут сохраняться здесь.")
+        return
+    lines = ["📚 БИБЛИОТЕКА КОНТЕНТА RAMZES", ""]
+    for index, item in enumerate(items, 1):
+        created = str(item.get("created_at", ""))[:10]
+        topic = item.get("topic") or "Без названия"
+        status = item.get("status") or "draft"
+        kind = item.get("content_type") or "контент"
+        lines.append(f"{index}. {created} · {kind} · {status}")
+        lines.append(str(topic)[:500])
+        lines.append("")
+    send_text(chat_id, "\n".join(lines))
+
+
+def send_metric_help(chat_id):
+    send_text(
+        chat_id,
+        "📈 ДОБАВЛЕНИЕ СТАТИСТИКИ\n\n"
+        "Отправь одной командой /metric и цифры публикации. Можно обычным текстом.\n\n"
+        "Пример:\n"
+        "/metric Threads: 1200 просмотров, 32 лайка, 4 комментария, 6 сохранений, 10 репостов, 14 переходов в профиль, 3 подписки, 1 заявка, 0 записей\n\n"
+        "Поддерживаются Threads, VK, Instagram/Reels и Telegram. Бот сохранит показатели и сможет сравнивать публикации."
+    )
+
+
+def handle_metric(chat_id, metric_text):
+    parsed = parse_metric_message(metric_text)
+    if not parsed:
+        send_metric_help(chat_id)
+        return
+    if save_metric(OWNER_ID or chat_id, parsed):
+        values = ", ".join(f"{key}: {value}" for key, value in parsed["metrics"].items())
+        send_text(chat_id, f"✅ Статистика сохранена.\nПлощадка: {parsed['platform']}\n{values}")
+    else:
+        send_text(chat_id, "Не удалось сохранить статистику. Проверь подключение постоянного хранилища и попробуй ещё раз.")
+
+
+def run_analytics(chat_id):
+    metrics = load_recent_metrics(OWNER_ID or chat_id, 50)
+    if not metrics:
+        send_metric_help(chat_id)
+        return
+    prompt = (
+        "Проанализируй сохранённую статистику личного бренда RAMZES. "
+        "Сравни публикации и площадки, выдели сильные и слабые форматы, "
+        "оцени вовлечение там, где есть нужные знаменатели, найди возможные закономерности "
+        "и предложи три конкретных эксперимента на следующую неделю. "
+        "Не придумывай отсутствующие показатели и не делай причинных выводов по малой выборке. "
+        "Отделяй наблюдения от гипотез.\n\nДАННЫЕ:\n"
+        + json.dumps(metrics, ensure_ascii=False, indent=2)
+    )
+    ask_ai(chat_id, prompt)
 
 
 def ask_ai(chat_id, user_text):
@@ -447,8 +535,18 @@ def ask_ai(chat_id, user_text):
         send_text(chat_id, "Не настроен OPENROUTER_API_KEY на хостинге.")
         return
 
+    persistent_history = load_chat_history(chat_id, OWNER_ID or chat_id)
+    if persistent_history is not None:
+        with memory_lock:
+            memory[str(chat_id)] = persistent_history[-40:]
+
     with memory_lock:
         history = list(memory.get(str(chat_id), []))
+
+    brand_profile = load_brand_profile(OWNER_ID or chat_id)
+    brand_context = build_brand_context(brand_profile)
+    recent_content = load_recent_content(OWNER_ID or chat_id, 20)
+    recent_content_context = build_recent_content_context(recent_content)
 
     now = datetime.now(ZoneInfo("Asia/Novosibirsk"))
     today_context = now.strftime("%d.%m.%Y")
@@ -510,7 +608,7 @@ def ask_ai(chat_id, user_text):
             instruction += "ЗАМЕЧАНИЯ ПРОВЕРКИ — ИСПРАВЬ ВСЁ:\n" + correction + "\n\n"
         instruction += "ЧЕРНОВИК:\n" + draft
         return request_ai(
-            [{"role": "system", "content": SYSTEM_PROMPT + seasonal_context + "\n\n" + EDITOR_PROMPT},
+            [{"role": "system", "content": SYSTEM_PROMPT + seasonal_context + brand_context + recent_content_context + "\n\n" + EDITOR_PROMPT},
              {"role": "user", "content": instruction}],
             0.15, 7000 if is_factory else 3500, "RAMZES CONTENT ENGINE EDITOR"
         )
@@ -566,6 +664,8 @@ def ask_ai(chat_id, user_text):
         for pattern, reason in risk_patterns:
             if re.search(pattern, package, flags=re.IGNORECASE):
                 issues.append("Автоматическая проверка: " + reason)
+        repeated_topics = topic_repeat_issues(extract_topics(plan), recent_content)
+        issues.extend("Архив контента: " + issue for issue in repeated_topics)
         return result.get("pass") is True and not issues, issues
 
     try:
@@ -576,13 +676,15 @@ def ask_ai(chat_id, user_text):
         if is_daily:
             generation_instruction += (
                 "\n\n" + plan + "\n\n"
+                "Сверься с архивом недавнего контента и не повторяй темы, хуки и смысловые конструкции. "
+                "Если тема похожа на недавнюю, выбери другой угол внутри назначенной категории. "
                 "Создай ровно пять полноценных Threads-публикаций и один сценарий видео. "
                 "Не меняй категории и темы. Не своди их к композиции тела или адаптации эскиза. "
                 "Каждый раздел раскрывает только назначенную тему. Не добавляй план или отчёт."
             )
 
         draft = request_ai(
-            [{"role": "system", "content": SYSTEM_PROMPT + seasonal_context}]
+            [{"role": "system", "content": SYSTEM_PROMPT + seasonal_context + brand_context + recent_content_context}]
             + history + [{"role": "user", "content": generation_instruction}],
             0.85, 7000 if is_factory else 3500, "RAMZES CONTENT ENGINE DRAFT"
         )
@@ -614,6 +716,23 @@ def ask_ai(chat_id, user_text):
 
         remember(chat_id, "user", user_text)
         remember(chat_id, "assistant", answer)
+
+        if is_daily:
+            content_type = "daily_pack"
+        elif is_factory:
+            content_type = "weekly_content_pack"
+        elif user_text.strip() == ACTIONS["week"]:
+            content_type = "weekly_plan"
+        elif user_text.strip() == ACTIONS["threads"]:
+            content_type = "threads_batch"
+        elif user_text.strip() == ACTIONS["reels"]:
+            content_type = "video_batch"
+        else:
+            content_type = "generated_content"
+        saved_id = save_content_pack(chat_id, OWNER_ID or chat_id, answer, content_type, plan)
+        if saved_id:
+            log.info("Saved content pack %s (%s)", saved_id, content_type)
+
         send_text(chat_id, answer)
 
     except Exception as exc:
@@ -638,7 +757,20 @@ def process_update(update):
             if action == "reset":
                 with memory_lock:
                     memory.pop(str(chat_id), None)
-                send_text(chat_id, "Контекст текущего диалога очищен.")
+                clear_chat_history(OWNER_ID or chat_id)
+                send_text(chat_id, "История диалога очищена. Библиотека контента и профиль бренда сохранены.")
+                return
+            if action == "library":
+                send_content_library(chat_id)
+                return
+            if action == "profile":
+                send_brand_profile(chat_id)
+                return
+            if action == "metric":
+                send_metric_help(chat_id)
+                return
+            if action == "analytics":
+                run_analytics(chat_id)
                 return
             if action in ACTIONS:
                 send_text(chat_id, "Готовлю материал. Это может занять немного времени…")
@@ -672,7 +804,31 @@ def process_update(update):
         if text.startswith("/reset"):
             with memory_lock:
                 memory.pop(str(chat_id), None)
-            send_text(chat_id, "Контекст очищен. Начинаем с чистого листа.")
+            clear_chat_history(OWNER_ID or chat_id)
+            send_text(chat_id, "История диалога очищена. Библиотека контента и профиль бренда сохранены.")
+            return
+        if text.startswith("/profile"):
+            send_brand_profile(chat_id)
+            return
+        if text.startswith("/library"):
+            send_content_library(chat_id)
+            return
+        if text.startswith("/metric"):
+            handle_metric(chat_id, text[len("/metric"):].strip())
+            return
+        if text.startswith("/fact"):
+            fact = text[len("/fact"):].strip()
+            if not fact:
+                send_text(chat_id, "Напиши подтверждённый факт после команды: /fact ...")
+            else:
+                ok, _ = add_brand_fact(OWNER_ID or chat_id, fact)
+                send_text(chat_id, "✅ Добавил в постоянную память бренда как подтверждённый факт." if ok else "Не удалось сохранить факт.")
+            return
+        if text.lower().startswith("запомни:") or text.lower().startswith("запомни "):
+            fact = text.split(":", 1)[1].strip() if ":" in text else text[len("запомни "):].strip()
+            if fact:
+                ok, _ = add_brand_fact(OWNER_ID or chat_id, fact)
+                send_text(chat_id, "✅ Сохранил в профиль RAMZES как подтверждённый факт." if ok else "Не удалось сохранить факт.")
             return
         if not OWNER_ID:
             send_text(chat_id, "Сначала настрой доступ владельца: отправь /start и добавь свой Telegram ID в TELEGRAM_OWNER_ID на хостинге.")
@@ -684,7 +840,16 @@ def process_update(update):
             if action == "reset":
                 with memory_lock:
                     memory.pop(str(chat_id), None)
-                send_text(chat_id, "Контекст текущего диалога очищен.")
+                clear_chat_history(OWNER_ID or chat_id)
+                send_text(chat_id, "История диалога очищена. Библиотека контента и профиль бренда сохранены.")
+            elif action == "library":
+                send_content_library(chat_id)
+            elif action == "profile":
+                send_brand_profile(chat_id)
+            elif action == "metric":
+                send_metric_help(chat_id)
+            elif action == "analytics":
+                run_analytics(chat_id)
             else:
                 send_text(chat_id, "Готовлю материал. Это может занять немного времени…")
                 ask_ai(chat_id, ACTIONS[action])
