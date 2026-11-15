@@ -258,6 +258,11 @@ def configure_webhook():
             "drop_pending_updates": False
         })
         log.info("Telegram webhook configured: %s", result)
+    except requests.HTTPError as exc:
+        # Never log the request URL: Telegram bot URLs contain the bot token.
+        status = exc.response.status_code if exc.response is not None else "unknown"
+        body = exc.response.text[:1000] if exc.response is not None else "No response body"
+        log.error("Telegram webhook rejected (HTTP %s): %s", status, body)
     except Exception:
         log.exception("Could not configure Telegram webhook")
 
