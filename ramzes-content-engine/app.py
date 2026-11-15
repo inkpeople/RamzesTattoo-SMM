@@ -700,7 +700,7 @@ def ask_ai(chat_id, user_text):
              {"role": "user", "content": prompt}],
             0.0, 1200, "RAMZES GENERAL CONTENT QA"
         )
-        match = re.search(r"\\{[\\s\\S]*\\}", raw)
+        match = re.search(r"\{[\s\S]*\}", raw)
         if not match:
             return False, ["Независимый редактор не вернул корректный JSON."]
         try:
