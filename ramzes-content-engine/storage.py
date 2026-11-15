@@ -9,6 +9,7 @@ import requests
 log = logging.getLogger("ramzes-content-engine.storage")
 
 SUPABASE_URL = __import__("os").getenv("SUPABASE_URL", "").strip().rstrip("/")
+STORAGE_ENABLED = __import__("os").getenv("RAMZES_STORAGE_ENABLED", "false").strip().lower() in ("1", "true", "yes")
 SUPABASE_KEY = __import__("os").getenv("SUPABASE_PUBLISHABLE_KEY", "").strip()
 SUPABASE_AUTH_KEY = __import__("os").getenv("SUPABASE_AUTH_KEY", "").strip() or SUPABASE_KEY
 ENGINE_SECRET = __import__("os").getenv("RAMZES_ENGINE_STORAGE_SECRET", "").strip()
@@ -50,7 +51,7 @@ DEFAULT_BRAND_PROFILE = {
 
 
 def enabled():
-    return bool(REST_URL and SUPABASE_KEY and ENGINE_SECRET)
+    return bool(STORAGE_ENABLED and REST_URL and SUPABASE_KEY and ENGINE_SECRET)
 
 
 def healthcheck():
@@ -200,7 +201,8 @@ def add_brand_fact(telegram_user_id, fact):
     if normalized.lower() not in [str(item).lower() for item in facts]:
         facts.append(normalized)
         profile["confirmed_facts"] = facts[-100:]
-        save_brand_profile(telegram_user_id, profile)
+        if not save_brand_profile(telegram_user_id, profile):
+            return False, profile
     return True, profile
 
 
