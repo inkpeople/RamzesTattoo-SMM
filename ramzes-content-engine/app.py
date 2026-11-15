@@ -25,6 +25,9 @@ app = Flask(__name__)
 pool = ThreadPoolExecutor(max_workers=4)
 memory = {}
 memory_lock = threading.Lock()
+content_history_cache = []
+metrics_cache = []
+brand_profile_cache = None
 
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "").strip()
@@ -567,8 +570,65 @@ def remember(chat_id, role, content):
     save_chat_history(chat_id, OWNER_ID or chat_id, snapshot)
 
 
+def current_brand_profile(chat_id):
+    global brand_profile_cache
+    if storage_enabled():
+        return load_brand_profile(OWNER_ID or chat_id)
+    with memory_lock:
+        if brand_profile_cache is None:
+            brand_profile_cache = load_brand_profile(OWNER_ID or chat_id)
+        return json.loads(json.dumps(brand_profile_cache, ensure_ascii=False))
+
+
+def add_fact_to_profile(chat_id, fact):
+    global brand_profile_cache
+    if storage_enabled():
+        return add_brand_fact(OWNER_ID or chat_id, fact)
+    with memory_lock:
+        if brand_profile_cache is None:
+            brand_profile_cache = load_brand_profile(OWNER_ID or chat_id)
+        facts = brand_profile_cache.setdefault("confirmed_facts", [])
+        if fact.lower() not in [str(item).lower() for item in facts]:
+            facts.append(fact)
+            brand_profile_cache["confirmed_facts"] = facts[-100:]
+    return True, current_brand_profile(chat_id)
+
+
+def recent_content_for(chat_id, limit=20):
+    persistent = load_recent_content(OWNER_ID or chat_id, limit) if storage_enabled() else []
+    with memory_lock:
+        temporary = list(content_history_cache)
+    return (persistent + temporary)[-limit:]
+
+
+def cache_content_pack(chat_id, content_type, answer, plan=""):
+    topics = extract_topics(plan or answer)
+    topic = " | ".join(topics[:12]) if topics else " ".join(answer.splitlines()[:2])[:500]
+    first_lines = [line.strip(" #*-") for line in answer.splitlines() if line.strip()]
+    item = {
+        "id": f"session-{len(content_history_cache) + 1}",
+        "created_at": datetime.now(ZoneInfo("Asia/Novosibirsk")).isoformat(),
+        "platform": "multi",
+        "content_type": content_type,
+        "pillar": "personal_brand",
+        "topic": topic[:2000],
+        "hook": first_lines[0][:300] if first_lines else "",
+        "status": "session",
+    }
+    with memory_lock:
+        content_history_cache.append(item)
+        del content_history_cache[:-100]
+
+
+def current_metrics(chat_id, limit=50):
+    persistent = load_recent_metrics(OWNER_ID or chat_id, limit) if storage_enabled() else []
+    with memory_lock:
+        temporary = list(metrics_cache)
+    return (persistent + temporary)[-limit:]
+
+
 def send_brand_profile(chat_id):
-    profile = load_brand_profile(OWNER_ID or chat_id)
+    profile = current_brand_profile(chat_id)
     facts = profile.get("confirmed_facts") or []
     personal = profile.get("personal_material") or []
     workflows = profile.get("confirmed_workflows") or []
@@ -589,10 +649,10 @@ def send_brand_profile(chat_id):
 
 
 def send_content_library(chat_id):
-    if not storage_enabled():
-        send_text(chat_id, "📚 Библиотека контента временно недоступна: база данных ограничена по исходящему трафику. Сами генерации продолжают работать.")
+    items = recent_content_for(chat_id, 12)
+    if not items:
+        send_text(chat_id, "📚 Библиотека пока пуста. После генерации контент-пакеты появятся здесь.")
         return
-    items = load_recent_content(OWNER_ID or chat_id, 12)
     if not items:
         send_text(chat_id, "📚 Библиотека пока пуста. После генерации контент-пакеты будут сохраняться здесь.")
         return
@@ -626,15 +686,21 @@ def handle_metric(chat_id, metric_text):
     if not parsed:
         send_metric_help(chat_id)
         return
-    if save_metric(OWNER_ID or chat_id, parsed):
-        values = ", ".join(f"{key}: {value}" for key, value in parsed["metrics"].items())
-        send_text(chat_id, f"✅ Статистика сохранена.\nПлощадка: {parsed['platform']}\n{values}")
+    values = ", ".join(f"{key}: {value}" for key, value in parsed["metrics"].items())
+    if storage_enabled() and save_metric(OWNER_ID or chat_id, parsed):
+        send_text(chat_id, f"✅ Статистика сохранена постоянно.\nПлощадка: {parsed['platform']}\n{values}")
+    elif not storage_enabled():
+        parsed["captured_at"] = datetime.now(ZoneInfo("Asia/Novosibirsk")).isoformat()
+        with memory_lock:
+            metrics_cache.append(parsed)
+            del metrics_cache[:-100]
+        send_text(chat_id, f"✅ Статистика сохранена во временную память текущей сессии.\nПлощадка: {parsed['platform']}\n{values}\n\nПосле перезапуска сервиса эти данные могут исчезнуть.")
     else:
-        send_text(chat_id, "Не удалось сохранить статистику. Проверь подключение постоянного хранилища и попробуй ещё раз.")
+        send_text(chat_id, "Не удалось сохранить статистику. Попробуй ещё раз.")
 
 
 def run_analytics(chat_id):
-    metrics = load_recent_metrics(OWNER_ID or chat_id, 50)
+    metrics = current_metrics(chat_id, 50)
     if not metrics:
         send_metric_help(chat_id)
         return
@@ -663,9 +729,9 @@ def ask_ai(chat_id, user_text):
     with memory_lock:
         history = list(memory.get(str(chat_id), []))
 
-    brand_profile = load_brand_profile(OWNER_ID or chat_id)
+    brand_profile = current_brand_profile(chat_id)
     brand_context = build_brand_context(brand_profile)
-    recent_content = load_recent_content(OWNER_ID or chat_id, 20)
+    recent_content = recent_content_for(chat_id, 20)
     recent_content_context = build_recent_content_context(recent_content)
 
     now = datetime.now(ZoneInfo("Asia/Novosibirsk"))
@@ -946,9 +1012,11 @@ def ask_ai(chat_id, user_text):
             ))
         )
         if archive_request:
-            saved_id = save_content_pack(chat_id, OWNER_ID or chat_id, answer, content_type, plan)
+            saved_id = save_content_pack(chat_id, OWNER_ID or chat_id, answer, content_type, plan) if storage_enabled() else None
             if saved_id:
                 log.info("Saved content pack %s (%s)", saved_id, content_type)
+            else:
+                cache_content_pack(chat_id, content_type, answer, plan)
 
         send_text(chat_id, answer)
 
@@ -1038,14 +1106,16 @@ def process_update(update):
             if not fact:
                 send_text(chat_id, "Напиши подтверждённый факт после команды: /fact ...")
             else:
-                ok, _ = add_brand_fact(OWNER_ID or chat_id, fact)
-                send_text(chat_id, "✅ Добавил в постоянную память бренда как подтверждённый факт." if ok else "Не удалось сохранить факт.")
+                ok, _ = add_fact_to_profile(chat_id, fact)
+                note = "постоянную память" if storage_enabled() else "временную память текущей сессии"
+                send_text(chat_id, f"✅ Добавил в {note} бренда как подтверждённый факт." if ok else "Не удалось сохранить факт.")
             return
         if text.lower().startswith("запомни:") or text.lower().startswith("запомни "):
             fact = text.split(":", 1)[1].strip() if ":" in text else text[len("запомни "):].strip()
             if fact:
-                ok, _ = add_brand_fact(OWNER_ID or chat_id, fact)
-                send_text(chat_id, "✅ Сохранил в профиль RAMZES как подтверждённый факт." if ok else "Не удалось сохранить факт.")
+                ok, _ = add_fact_to_profile(chat_id, fact)
+                note = "постоянный профиль" if storage_enabled() else "временный профиль текущей сессии"
+                send_text(chat_id, f"✅ Сохранил в {note} RAMZES как подтверждённый факт." if ok else "Не удалось сохранить факт.")
             return
         if not OWNER_ID:
             send_text(chat_id, "Сначала настрой доступ владельца: отправь /start и добавь свой Telegram ID в TELEGRAM_OWNER_ID на хостинге.")
