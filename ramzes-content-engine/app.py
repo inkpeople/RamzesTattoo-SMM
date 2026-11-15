@@ -15,7 +15,7 @@ from storage import (
     load_brand_profile, add_brand_fact, build_brand_context,
     load_recent_content, build_recent_content_context,
     save_content_pack, extract_topics, topic_repeat_issues,
-    load_recent_metrics, save_metric, parse_metric_message, healthcheck,
+    load_recent_metrics, save_metric, parse_metric_message, healthcheck, enabled as storage_enabled,
 )
 
 logging.basicConfig(level=logging.INFO)
@@ -469,11 +469,15 @@ def send_brand_profile(chat_id):
         + ("\n".join("• " + str(x) for x in workflows) if workflows else "Пока не добавлены.")
         + "\n\nЧтобы добавить факт, отправь: /fact твой факт.\n"
         + "Можно также написать: «Запомни: ...»"
+        + ("\n\n⚠️ Постоянное сохранение временно отключено: база данных ограничена по трафику." if not storage_enabled() else "")
     )
     send_text(chat_id, text)
 
 
 def send_content_library(chat_id):
+    if not storage_enabled():
+        send_text(chat_id, "📚 Библиотека контента временно недоступна: база данных ограничена по исходящему трафику. Сами генерации продолжают работать.")
+        return
     items = load_recent_content(OWNER_ID or chat_id, 12)
     if not items:
         send_text(chat_id, "📚 Библиотека пока пуста. После генерации контент-пакеты будут сохраняться здесь.")
@@ -491,6 +495,7 @@ def send_content_library(chat_id):
 
 
 def send_metric_help(chat_id):
+    storage_note = "" if storage_enabled() else "\n\n⚠️ Постоянное сохранение статистики временно недоступно из-за ограничения базы данных."
     send_text(
         chat_id,
         "📈 ДОБАВЛЕНИЕ СТАТИСТИКИ\n\n"
@@ -498,6 +503,7 @@ def send_metric_help(chat_id):
         "Пример:\n"
         "/metric Threads: 1200 просмотров, 32 лайка, 4 комментария, 6 сохранений, 10 репостов, 14 переходов в профиль, 3 подписки, 1 заявка, 0 записей\n\n"
         "Поддерживаются Threads, VK, Instagram/Reels и Telegram. Бот сохранит показатели и сможет сравнивать публикации."
+        + storage_note
     )
 
 
@@ -668,9 +674,71 @@ def ask_ai(chat_id, user_text):
         issues.extend("Архив контента: " + issue for issue in repeated_topics)
         return result.get("pass") is True and not issues, issues
 
+    def audit_general_content(original_request, content):
+        prompt = (
+            "Ты независимый строгий редактор-валидатор личного бренда RAMZES. "
+            "Проверь готовый материал на соответствие запросу, количество и форматы, "
+            "разнообразие тем, повторение недавнего контента, естественность языка, "
+            "содержательность хуков и пригодность к публикации. "
+            "Проверь происхождение каждого фактического утверждения. "
+            "Не допускай выдуманной биографии, личных историй, эмоций, привычек, рабочих процессов, "
+            "клиентских случаев, диалогов, отзывов, цен, дат, статистики и обещаний. "
+            "Сверяй личные утверждения только с профилем бренда ниже. "
+            "Не допускай технических гарантий о заживлении, долговечности, читаемости, контрасте "
+            "или внешнем виде татуировки через годы. Не допускай запугивания и логически бессмысленной рекламы. "
+            "Проверь, что материал развивает личный бренд, а не превращён в однотипную рекламу. "
+            "Если пользователь запросил несколько публикаций, проверь различие тем и углов, а не только заголовков. "
+            "Если найдена хотя бы одна существенная проблема, pass=false. Верни только JSON "
+            '{"pass": true, "issues": []} или {"pass": false, "issues": ["точный материал и проблема"]}.\n\n'
+            "ПРОФИЛЬ БРЕНДА:\n" + brand_context +
+            "\n\nНЕДАВНИЙ КОНТЕНТ — НЕ ПОВТОРЯТЬ:\n" + recent_content_context +
+            "\n\nИСХОДНЫЙ ЗАПРОС:\n" + original_request +
+            "\n\nГОТОВЫЙ МАТЕРИАЛ:\n" + content
+        )
+        raw = request_ai(
+            [{"role": "system", "content": "Ты строгий независимый QA-аудитор. Не ставь pass=true из вежливости."},
+             {"role": "user", "content": prompt}],
+            0.0, 1200, "RAMZES GENERAL CONTENT QA"
+        )
+        match = re.search(r"\\{[\\s\\S]*\\}", raw)
+        if not match:
+            return False, ["Независимый редактор не вернул корректный JSON."]
+        try:
+            result = json.loads(match.group(0))
+        except json.JSONDecodeError:
+            return False, ["Независимый редактор вернул повреждённый JSON."]
+        issues = result.get("issues", [])
+        if not isinstance(issues, list):
+            issues = [str(issues)]
+        hard_risks = [
+            (r"мои фото.{0,40}(?:без ретуши|без обработки)|фото.{0,30}без фильтр", "неподтверждённое заявление о ретуши/обработке фотографий"),
+            (r"видите недоч[её]ты.{0,40}значит их нет", "логически недостоверное рекламное утверждение"),
+            (r"тату(?:ировка)?[^.]{0,50}(?:превратится в пятно|станет пятном)|обязательно расплыв", "запугивание или неподтверждённое предсказание внешнего вида татуировки"),
+            (r"хорошая тату.{0,40}стареет красиво|не прид[её]тся скрывать|идеальн(?:ый|ая|ое) результат", "необоснованная гарантия результата"),
+            (r"контраст.{0,40}на любом расстоянии|сохранит читаемость|линии останутся на месте", "неподтверждённая техническая гарантия")
+        ]
+        for pattern, reason in hard_risks:
+            if re.search(pattern, content, flags=re.IGNORECASE):
+                issues.append("Автоматическая проверка: " + reason)
+        repeated_topics = topic_repeat_issues(extract_topics(content), recent_content)
+        issues.extend("Архив контента: " + issue for issue in repeated_topics)
+        return result.get("pass") is True and not issues, issues
+
     try:
         is_daily = user_text.strip() == ACTIONS["daily"]
         is_factory = user_text.strip() == ACTIONS["factory"]
+        is_content_request = (
+            is_daily or is_factory
+            or user_text.strip() in (
+                ACTIONS["week"], ACTIONS["threads"], ACTIONS["reels"],
+                ACTIONS["ads"], ACTIONS["shoots"]
+            )
+            or any(word in user_text.lower() for word in (
+                "напиши пост", "создай пост", "подготовь публикац", "напиши threads",
+                "сценарий видео", "сценарии reels", "контент-пакет", "контент на неделю",
+                "напиши сторис", "сделай публикацию"
+            ))
+        )
         plan = build_daily_topic_plan(now.date()) if is_daily else ""
         generation_instruction = user_text
         if is_daily:
@@ -710,6 +778,27 @@ def ask_ai(chat_id, user_text):
             if not passed:
                 log.error("Daily package rejected after retry: %s", issues)
                 send_text(chat_id, "Не отправил пакет: он дважды не прошёл проверку на повторы или достоверность. Нажми «Контент на сегодня» ещё раз — подготовлю новый вариант.")
+                return
+        elif is_content_request:
+            answer = edit_draft(draft, "", "")
+            passed, issues = audit_general_content(user_text, answer)
+            if not passed:
+                log.warning("Content package failed independent QA; retrying. Issues: %s", issues)
+                retry_instruction = (
+                    generation_instruction + "\n\nПРЕДЫДУЩАЯ ВЕРСИЯ НЕ ПРОШЛА НЕЗАВИСИМУЮ ПРОВЕРКУ. "
+                    "Создай новую версию и исправь все замечания, сохрани количество и форматы:\n- "
+                    + "\n- ".join(str(item) for item in issues)
+                )
+                retry_draft = request_ai(
+                    [{"role": "system", "content": SYSTEM_PROMPT + seasonal_context + brand_context + recent_content_context}]
+                    + history + [{"role": "user", "content": retry_instruction}],
+                    0.9, 7000 if is_factory else 3500, "RAMZES CONTENT ENGINE QA RETRY"
+                )
+                answer = edit_draft(retry_draft, "", "\n".join(str(item) for item in issues))
+                passed, issues = audit_general_content(user_text, answer)
+            if not passed:
+                log.error("Content package rejected after retry: %s", issues)
+                send_text(chat_id, "Не отправил материал: он не прошёл независимую проверку фактов, повторов или соответствия задаче. Попробуй изменить угол или запрос.")
                 return
         else:
             answer = edit_draft(draft, "", "")
