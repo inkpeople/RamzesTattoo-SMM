@@ -287,6 +287,7 @@ def _format_telegram_line(line):
     if bullet:
         raw = "• " + bullet.group(1)
     escaped = html.escape(raw, quote=False)
+    escaped = re.sub(r"&lt;(/?)(b|i|u|s|code)&gt;", r"<\1\2>", escaped, flags=re.IGNORECASE)
     escaped = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", escaped)
     escaped = re.sub(r"__(.+?)__", r"<b>\1</b>", escaped)
     escaped = re.sub(r"(?<!\*)\*(?!\s)(.+?)(?<!\s)\*(?!\*)", r"<i>\1</i>", escaped)
@@ -439,6 +440,17 @@ def ask_ai(chat_id, user_text):
         issues = result.get("issues", [])
         if not isinstance(issues, list):
             issues = [str(issues)]
+        risk_patterns = [
+            (r"\\b5\\s*000\\s*(?:миль|километр)", "неподтверждённое точное расстояние/историческая легенда"),
+            (r"(?:десяток|\\d+\\s*(?:эскиз|наброс))", "неподтверждённое число эскизов или набросков"),
+            (r"мои клиенты|клиенты часто|клиенты удивляются", "неподтверждённое обобщение о клиентах"),
+            (r"я всегда|я сам веду|мой блокнот|я записываю|я фиксирую", "неподтверждённая личная привычка или процесс RAMZES"),
+            (r"представь\\s*:", "постановочный диалог или выдуманная сценка"),
+            (r"превратится в (?:зелёное )?пятно|обязательно расплыв", "категоричное неподтверждённое техническое обещание")
+        ]
+        for pattern, reason in risk_patterns:
+            if re.search(pattern, package, flags=re.IGNORECASE):
+                issues.append("Автоматическая проверка: " + reason)
         return result.get("pass") is True and not issues, issues
 
     try:
