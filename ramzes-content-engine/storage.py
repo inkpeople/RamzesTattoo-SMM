@@ -10,6 +10,7 @@ log = logging.getLogger("ramzes-content-engine.storage")
 
 SUPABASE_URL = __import__("os").getenv("SUPABASE_URL", "").strip().rstrip("/")
 SUPABASE_KEY = __import__("os").getenv("SUPABASE_PUBLISHABLE_KEY", "").strip()
+SUPABASE_AUTH_KEY = __import__("os").getenv("SUPABASE_AUTH_KEY", "").strip() or SUPABASE_KEY
 ENGINE_SECRET = __import__("os").getenv("RAMZES_ENGINE_STORAGE_SECRET", "").strip()
 REST_URL = f"{SUPABASE_URL}/rest/v1" if SUPABASE_URL else ""
 
@@ -64,7 +65,7 @@ def healthcheck():
 def _headers(prefer=None):
     headers = {
         "apikey": SUPABASE_KEY,
-        "Authorization": f"Bearer {SUPABASE_KEY}",
+        "Authorization": f"Bearer {SUPABASE_AUTH_KEY}",
         "Content-Type": "application/json",
         "x-ramzes-engine-key": ENGINE_SECRET,
     }
@@ -89,6 +90,11 @@ def _request(method, table, params=None, payload=None, prefer=None):
         if response.status_code == 204 or not response.text.strip():
             return []
         return response.json()
+    except requests.HTTPError as exc:
+        status = exc.response.status_code if exc.response is not None else "unknown"
+        body = exc.response.text[:400] if exc.response is not None else ""
+        log.warning("Persistent storage request failed for %s (HTTP %s): %s", table, status, body)
+        return None
     except Exception as exc:
         log.warning("Persistent storage request failed for %s (%s)", table, type(exc).__name__)
         return None
