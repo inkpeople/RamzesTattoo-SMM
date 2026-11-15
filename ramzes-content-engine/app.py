@@ -15,7 +15,7 @@ from storage import (
     load_brand_profile, add_brand_fact, build_brand_context,
     load_recent_content, build_recent_content_context,
     save_content_pack, extract_topics, topic_repeat_issues,
-    load_recent_metrics, save_metric, parse_metric_message,
+    load_recent_metrics, save_metric, parse_metric_message, healthcheck,
 )
 
 logging.basicConfig(level=logging.INFO)
@@ -448,7 +448,7 @@ def remember(chat_id, role, content):
     with memory_lock:
         history = memory.setdefault(str(chat_id), [])
         history.append({"role": role, "content": content})
-        memory[str(chat_id)] = history[-40:]
+        memory[str(chat_id)] = history[-16:]
         snapshot = list(memory[str(chat_id)])
     save_chat_history(chat_id, OWNER_ID or chat_id, snapshot)
 
@@ -538,7 +538,7 @@ def ask_ai(chat_id, user_text):
     persistent_history = load_chat_history(chat_id, OWNER_ID or chat_id)
     if persistent_history is not None:
         with memory_lock:
-            memory[str(chat_id)] = persistent_history[-40:]
+            memory[str(chat_id)] = persistent_history[-16:]
 
     with memory_lock:
         history = list(memory.get(str(chat_id), []))
@@ -632,7 +632,7 @@ def ask_ai(chat_id, user_text):
             "Художественные описания цвета и композиции должны относиться к конкретному эскизу, а не звучать как универсальные технические правила. Обещания о внешнем виде через годы, стойкости линий, контрасте на любом расстоянии, читаемости и поведении композиции в движении — ошибка. Фразы о личном методе RAMZES («как я проверяю», «в своих проектах я делаю») без подтверждения владельца — тоже ошибка. "
             "При любой проблеме pass=false. В issues перечисли точный раздел и причину. Ответь только валидным JSON: "
             '{"pass": true, "issues": []} или {"pass": false, "issues": ["конкретная проблема"]}.\n\n'
-            "ПЛАН:\n" + plan + "\n\nКОНТЕНТ:\n" + package
+            "ПРОФИЛЬ БРЕНДА:\n" + brand_context + "\n\nПЛАН:\n" + plan + "\n\nКОНТЕНТ:\n" + package
         )
         raw = request_ai(
             [{"role": "system", "content": "Ты строгий независимый QA-аудитор. Не ставь pass=true из вежливости."},
@@ -729,9 +729,21 @@ def ask_ai(chat_id, user_text):
             content_type = "video_batch"
         else:
             content_type = "generated_content"
-        saved_id = save_content_pack(chat_id, OWNER_ID or chat_id, answer, content_type, plan)
-        if saved_id:
-            log.info("Saved content pack %s (%s)", saved_id, content_type)
+        archive_request = (
+            is_daily or is_factory
+            or user_text.strip() in (
+                ACTIONS["week"], ACTIONS["threads"], ACTIONS["reels"],
+                ACTIONS["ads"], ACTIONS["shoots"]
+            )
+            or any(word in user_text.lower() for word in (
+                "напиши пост", "создай пост", "подготовь публикац", "напиши threads",
+                "сценарий видео", "сценарии reels", "контент-пакет", "контент на неделю"
+            ))
+        )
+        if archive_request:
+            saved_id = save_content_pack(chat_id, OWNER_ID or chat_id, answer, content_type, plan)
+            if saved_id:
+                log.info("Saved content pack %s (%s)", saved_id, content_type)
 
         send_text(chat_id, answer)
 
@@ -863,7 +875,12 @@ def process_update(update):
 
 @app.get("/")
 def health():
-    return jsonify({"ok": True, "service": "RAMZES CONTENT ENGINE", "mode": "temporary"})
+    return jsonify({
+        "ok": True,
+        "service": "RAMZES CONTENT ENGINE",
+        "mode": "temporary",
+        "persistent_storage_configured": healthcheck(),
+    })
 
 
 @app.post("/telegram")
