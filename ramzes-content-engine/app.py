@@ -248,7 +248,7 @@ def ask_ai(chat_id, user_text):
         history = list(memory.get(str(chat_id), []))
 
     today_context = datetime.now(ZoneInfo("Asia/Novosibirsk")).strftime("%d.%m.%Y")
-    seasonal_context = f"\\n\\nАКТУАЛЬНЫЙ КОНТЕКСТ: сегодня {today_context} по времени Новосибирска. Учитывай реальную дату и сезон. Не выдумывай расписание, свободные даты, цены, статистику или события."
+    seasonal_context = f"\n\nАКТУАЛЬНЫЙ КОНТЕКСТ: сегодня {today_context} по времени Новосибирска. Учитывай реальную дату и сезон. Не выдумывай расписание, свободные даты, цены, статистику или события."
 
     headers = {
         "Authorization": f"Bearer {OPENROUTER_API_KEY}",
@@ -285,7 +285,7 @@ def ask_ai(chat_id, user_text):
         # Stage 1: build an independent topic map before writing any copy.
         if is_daily:
             planner_messages = [
-                {"role": "system", "content": SYSTEM_PROMPT + seasonal_context + "\\n\\n" + PLANNER_PROMPT}
+                {"role": "system", "content": SYSTEM_PROMPT + seasonal_context + "\n\n" + PLANNER_PROMPT}
             ] + history + [{
                 "role": "user",
                 "content": "Составь тематический план для сегодняшнего пакета. Внимательно изучи историю, чтобы не повторять недавние публикации. Пока не пиши сами посты."
@@ -301,13 +301,13 @@ def ask_ai(chat_id, user_text):
         generation_instruction = user_text
         if plan:
             generation_instruction += (
-                "\\n\\nУТВЕРЖДЁННЫЙ ПЛАН ТЕМ — СТРОГО СЛЕДУЙ ЕМУ. "
+                "\n\nУТВЕРЖДЁННЫЙ ПЛАН ТЕМ — СТРОГО СЛЕДУЙ ЕМУ. "
                 "Не меняй темы местами, не объединяй их и не возвращайся к одной общей теме. "
                 "Каждый материал должен раскрывать только назначенную ему область. "
                 "Если тема не получается, выбери другой конкретный угол внутри этой области, "
                 "но не заимствуй предмет разговора у соседнего материала. "
                 "Видео должно быть на шестую отдельную тему. "
-                "Не включай план, служебные пояснения или итоговый отчёт в ответ.\\n\\n"
+                "Не включай план, служебные пояснения или итоговый отчёт в ответ.\n\n"
                 + plan
             )
 
@@ -332,11 +332,11 @@ def ask_ai(chat_id, user_text):
             "Сверь центральную тему каждого материала с планом и не допускай пересечений. "
             "Удаляй обещания долговечности, гарантии результата, выдуманные диалоги и клиентские истории. "
             "Не добавляй в конце раздел «Итог», отчёт о правках, оценку или пояснения. "
-            "Верни только чистовой вариант:\\n\\n"
+            "Верни только чистовой вариант:\n\n"
         )
         if plan:
-            editor_instruction += "УТВЕРЖДЁННЫЙ ПЛАН ТЕМ (обязательный ориентир):\\n" + plan + "\\n\\n"
-        editor_instruction += "ЧЕРНОВИК:\\n" + draft
+            editor_instruction += "УТВЕРЖДЁННЫЙ ПЛАН ТЕМ (обязательный ориентир):\n" + plan + "\n\n"
+        editor_instruction += "ЧЕРНОВИК:\n" + draft
 
         review_messages = [
             {"role": "system", "content": SYSTEM_PROMPT + seasonal_context + "\n\n" + EDITOR_PROMPT}
@@ -357,7 +357,7 @@ def ask_ai(chat_id, user_text):
 
     except Exception as exc:
         log.exception("AI request failed")
-        send_text(chat_id, f"Не получилось получить ответ от ИИ. Проверь API-ключ, баланс OpenRouter и модель.\\nТехническая ошибка: {str(exc)[:350]}")
+        send_text(chat_id, f"Не получилось получить ответ от ИИ. Проверь API-ключ, баланс OpenRouter и модель.\nТехническая ошибка: {str(exc)[:350]}")
 
 def allowed(user_id):
     return not OWNER_ID or str(user_id) == OWNER_ID
