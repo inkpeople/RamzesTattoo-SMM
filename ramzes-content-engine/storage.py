@@ -52,6 +52,15 @@ def enabled():
     return bool(REST_URL and SUPABASE_KEY and ENGINE_SECRET)
 
 
+def healthcheck():
+    rows = _request(
+        "GET",
+        "ramzes_content_engine_brand_profile",
+        params={"select": "telegram_user_id", "limit": "1"},
+    )
+    return rows is not None
+
+
 def _headers(prefer=None):
     headers = {
         "apikey": SUPABASE_KEY,
@@ -106,7 +115,7 @@ def load_chat_history(chat_id, telegram_user_id):
     if not rows:
         return []
     messages = rows[0].get("messages") or []
-    return messages[-40:] if isinstance(messages, list) else []
+    return messages[-16:] if isinstance(messages, list) else []
 
 
 def save_chat_history(chat_id, telegram_user_id, messages):
@@ -121,7 +130,7 @@ def save_chat_history(chat_id, telegram_user_id, messages):
         "POST",
         "ramzes_content_engine_chat_history",
         params={"on_conflict": "telegram_user_id"},
-        payload={"telegram_user_id": uid, "chat_id": cid, "messages": messages[-40:]},
+        payload={"telegram_user_id": uid, "chat_id": cid, "messages": messages[-16:]},
         prefer="resolution=merge-duplicates,return=minimal",
     )
     return result is not None
