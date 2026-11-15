@@ -643,7 +643,7 @@ def send_brand_profile(chat_id):
         + ("\n".join("• " + str(x) for x in workflows) if workflows else "Пока не добавлены.")
         + "\n\nЧтобы добавить факт, отправь: /fact твой факт.\n"
         + "Можно также написать: «Запомни: ...»"
-        + ("\n\n⚠️ Постоянное сохранение временно отключено: база данных ограничена по трафику." if not storage_enabled() else "")
+        + ("\n\n⚠️ Сейчас это временный профиль сессии. Добавленные факты могут исчезнуть после перезапуска сервиса." if not storage_enabled() else "")
     )
     send_text(chat_id, text)
 
@@ -656,7 +656,10 @@ def send_content_library(chat_id):
     if not items:
         send_text(chat_id, "📚 Библиотека пока пуста. После генерации контент-пакеты будут сохраняться здесь.")
         return
-    lines = ["📚 БИБЛИОТЕКА КОНТЕНТА RAMZES", ""]
+    lines = ["📚 БИБЛИОТЕКА КОНТЕНТА RAMZES"]
+    if not storage_enabled():
+        lines.append("Временный архив текущей сессии — после перезапуска может очиститься.")
+    lines.append("")
     for index, item in enumerate(items, 1):
         created = str(item.get("created_at", ""))[:10]
         topic = item.get("topic") or "Без названия"
