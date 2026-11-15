@@ -15,7 +15,7 @@ services:
       - key: TELEGRAM_WEBHOOK_SECRET
         generateValue: true
       - key: TELEGRAM_OWNER_ID
-        sync: false
+        value: ""
       - key: OPENROUTER_API_KEY
         sync: false
       - key: OPENROUTER_MODEL
