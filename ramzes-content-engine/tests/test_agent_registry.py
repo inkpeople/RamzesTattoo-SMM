@@ -1,9 +1,10 @@
 import unittest
 
 from agent_registry import AGENTS, plan_task
+from agents import run_specialist_team
 from agent_tools import (
     score_lead, calculate_offer_economics, find_repeated_topics,
-    audit_metrics, check_publication,
+    audit_metrics, check_publication, analyze_booking_funnel,
 )
 
 
@@ -19,6 +20,23 @@ class AgentRegistryTests(unittest.TestCase):
         self.assertIn("copywriter", plan["agents"])
         self.assertIn("platform_editor", plan["agents"])
         self.assertLessEqual(plan["llm_agent_count"], 16)
+
+    def test_research_request_executes_market_and_trend_specialists(self):
+        calls = []
+
+        def fake_model(messages, temperature, max_tokens, title, timeout=60, web_search=False):
+            calls.append((title, web_search))
+            return "Результат: " + title
+
+        result = run_specialist_team(
+            fake_model, "Изучи конкурентов и тренды тату Новосибирска",
+            task_context="Исследуй открытый рынок и публичные предложения"
+        )
+        self.assertEqual(result["task_plan"]["task_type"], "research")
+        self.assertIn("market_researcher", result["agent_outputs"])
+        self.assertIn("competitor_watch", result["agent_outputs"])
+        self.assertIn("trend_radar", result["agent_outputs"])
+        self.assertTrue(calls[0][1])
 
     def test_simple_request_uses_light_team(self):
         plan = plan_task("Напиши короткий пост", full_team=False)
@@ -60,6 +78,14 @@ class DeterministicAgentTests(unittest.TestCase):
         result = audit_metrics([{"value": 100, "source": "VK", "period": "7 дней"}, {"value": 20}])
         self.assertFalse(result["valid"])
         self.assertEqual(len(result["issues"]), 1)
+
+    def test_booking_funnel_calculates_only_provided_events(self):
+        result = analyze_booking_funnel([
+            {"stage": "inquiry"}, {"stage": "inquiry"},
+            {"stage": "qualified"}, {"stage": "booked"},
+        ])
+        self.assertEqual(result["counts"]["inquiry"], 2)
+        self.assertEqual(result["conversion_percent"]["inquiry_to_qualified"], 50.0)
 
     def test_publication_preflight_blocks_internal_notes(self):
         result = check_publication("Это достаточно длинный текст для тестовой публикации. ВНУТРЕННИЕ ЗАМЕЧАНИЯ", "threads")
