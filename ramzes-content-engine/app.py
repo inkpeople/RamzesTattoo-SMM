@@ -1027,7 +1027,7 @@ def record_lead(chat_id, raw):
             lead_id = saved.get("id")
         else:
             item = {
-                "id": len(leads_cache) + 1,
+                "id": max((int(item.get("id", 0)) for item in leads_cache), default=0) + 1,
                 "created_at": datetime.now(ZoneInfo("Asia/Novosibirsk")).isoformat(),
                 "source_platform": data.get("source_platform", "unknown"),
                 "stage": "new", "lead_data": data, "score": score,
@@ -1081,7 +1081,7 @@ def record_booking(chat_id, raw):
             booking_id = saved.get("id")
         else:
             item = {
-                "id": len(bookings_cache) + 1,
+                "id": max((int(item.get("id", 0)) for item in bookings_cache), default=0) + 1,
                 "created_at": datetime.now(ZoneInfo("Asia/Novosibirsk")).isoformat(),
                 **data,
             }
@@ -1114,7 +1114,7 @@ def record_publication(chat_id, raw):
                 return
             publication_id = saved.get("id")
         else:
-            item = {"id": len(publications_cache) + 1, **data, "status": "published"}
+            item = {"id": max((int(item.get("id", 0)) for item in publications_cache), default=0) + 1, **data, "status": "published"}
             with memory_lock:
                 publications_cache.append(item)
                 del publications_cache[:-200]
