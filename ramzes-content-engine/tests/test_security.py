@@ -2,6 +2,7 @@ import unittest
 from unittest.mock import patch
 
 import app as app_module
+import storage as storage_module
 
 
 class AccessControlTests(unittest.TestCase):
@@ -55,6 +56,32 @@ class WebhookSecurityTests(unittest.TestCase):
             )
         self.assertEqual(response.status_code, 200)
         submit.assert_called_once()
+
+
+class StorageSecurityTests(unittest.TestCase):
+    def test_storage_requires_service_role_key(self):
+        with patch.multiple(
+            storage_module,
+            STORAGE_ENABLED=True,
+            REST_URL="https://example.supabase.co/rest/v1",
+            SUPABASE_SERVICE_KEY="",
+        ):
+            self.assertFalse(storage_module.enabled())
+
+        with patch.multiple(
+            storage_module,
+            STORAGE_ENABLED=True,
+            REST_URL="https://example.supabase.co/rest/v1",
+            SUPABASE_SERVICE_KEY="server-only-key",
+        ):
+            self.assertTrue(storage_module.enabled())
+
+    def test_storage_headers_use_only_service_role_credential(self):
+        with patch.object(storage_module, "SUPABASE_SERVICE_KEY", "server-only-key"):
+            headers = storage_module._headers()
+        self.assertEqual(headers["apikey"], "server-only-key")
+        self.assertEqual(headers["Authorization"], "Bearer server-only-key")
+        self.assertNotIn("x-ramzes-engine-key", headers)
 
 
 if __name__ == "__main__":
