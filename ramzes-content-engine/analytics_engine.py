@@ -11,7 +11,19 @@ def _number(row, key):
 
 
 def publication_analytics(metrics, publications=None):
-    rows = list(metrics or [])
+    raw_rows = list(metrics or [])
+    latest_by_publication = {}
+    unlinked_rows = []
+    for row in raw_rows:
+        publication_id = row.get("publication_id")
+        if publication_id is None:
+            unlinked_rows.append(row)
+            continue
+        key = str(publication_id)
+        previous = latest_by_publication.get(key)
+        if previous is None or str(row.get("captured_at") or "") >= str(previous.get("captured_at") or ""):
+            latest_by_publication[key] = row
+    rows = unlinked_rows + list(latest_by_publication.values())
     totals = defaultdict(float)
     by_platform = defaultdict(lambda: defaultdict(float))
     for row in rows:
@@ -118,7 +130,7 @@ def render_daily_report(metrics, leads, bookings, market_count=0, publications=N
         top_line = f'\nЛучший учтённый пост: ID {top["publication_id"]} · {top["topic"] or top["platform"]} · ER {rate_text}\n'
     return (
         "📊 RAMZES AI · ЕЖЕДНЕВНАЯ СВОДКА\n\n"
-        f"Публикации в выборке: {p['sample_size']}\n"
+        f"Снимков статистики в выборке: {p['sample_size']}\n"
         f"Просмотры: {t['views']} · взаимодействия: {t['likes'] + t['comments'] + t['reposts'] + t['saves']}\n"
         f"Вовлечённость от просмотров: {rate}\n"
         f"Заявки: {f['leads']} · записи: {f['booked_sessions']} · завершено: {f['completed_sessions']}\n"
