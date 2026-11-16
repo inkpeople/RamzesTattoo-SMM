@@ -75,6 +75,32 @@ class AgentRegistryTests(unittest.TestCase):
         plan = plan_task("Разбери портфолио и разложи фотографии по стилям")
         self.assertIn("portfolio_archivist", plan["agents"])
 
+    def test_sales_team_executes_lead_score_and_booking_funnel(self):
+        def fake_model(messages, temperature, max_tokens, title, timeout=60, web_search=False):
+            return "Черновой вывод специалиста"
+        result = run_specialist_team(
+            fake_model,
+            "Проанализируй заявки и записи, найди потери в воронке",
+            payload={
+                "lead": {"asked_booking": True, "project_description": "рукав", "placement": "рука"},
+                "events": [{"stage": "inquiry"}, {"stage": "qualified"}, {"stage": "booked"}],
+            },
+        )
+        self.assertIn("lead_scorer", result["agent_outputs"])
+        self.assertIn("booking_funnel", result["agent_outputs"])
+        self.assertEqual(result["agent_outputs"]["booking_funnel"]["counts"]["inquiry"], 1)
+
+    def test_analytics_team_executes_metric_auditor(self):
+        def fake_model(messages, temperature, max_tokens, title, timeout=60, web_search=False):
+            return "Анализ"
+        result = run_specialist_team(
+            fake_model,
+            "Сделай анализ публикаций",
+            payload={"metrics": [{"name": "views", "value": 100, "source": "owner", "period": "7 дней"}]},
+        )
+        self.assertIn("data_auditor", result["agent_outputs"])
+        self.assertTrue(result["agent_outputs"]["data_auditor"]["valid"])
+
 
 class DeterministicAgentTests(unittest.TestCase):
     def test_lead_score_is_explainable(self):
