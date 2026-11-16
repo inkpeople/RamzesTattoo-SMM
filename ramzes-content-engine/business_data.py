@@ -8,7 +8,7 @@ import re
 
 
 ALIASES = {
-    "source": "source_platform", "platform": "source_platform",
+    "source": "source_platform", "источник": "source_platform", "platform": "source_platform",
     "направление": "style", "стиль": "style", "зона": "zone",
     "бюджет": "budget", "срок": "deadline", "намерение": "intent",
     "проект": "project", "дата": "session_date", "сумма": "amount",
