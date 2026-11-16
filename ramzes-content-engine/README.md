@@ -25,7 +25,7 @@
 
 1. Создать отдельный проект в организации RAMZES AI.
 2. Открыть SQL Editor и выполнить миграцию `supabase/migrations/202611160001_initial_ramzes_content_engine.sql`.
-3. В Render добавить `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `RAMZES_STORAGE_ENABLED=true` и `RAMZES_ENGINE_STORAGE_SECRET`.
+3. В Render добавить `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` и `RAMZES_STORAGE_ENABLED=true`.
 4. Проверить корневой health endpoint: `persistent_storage_configured` должен стать `true`.
 5. Проверить запись/чтение истории, профиля, библиотеки и метрик тестовым Telegram-аккаунтом до переключения рабочего webhook.
 
