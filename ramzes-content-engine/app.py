@@ -16,7 +16,7 @@ from runtime_guard import TaskGate, UpdateDispatcher
 from agents import run_content_team, research_agent, run_specialist_team
 from agent_registry import plan_task
 from agent_tools import score_lead
-from business_data import parse_lead, parse_booking, parse_publication
+from business_data import parse_lead, parse_booking, parse_publication, deadline_in_days
 from analytics_engine import build_analytics_snapshot, render_daily_report
 
 from storage import (
@@ -1010,7 +1010,6 @@ def record_memory_event(chat_id, raw):
 def record_lead(chat_id, raw):
     try:
         data = parse_lead(raw)
-        deadline_match = re.search(r"\d+", str(data.get("deadline") or ""))
         score_input = {
             "asked_booking": any(word in str(data.get("intent", "")).lower()
                                  for word in ("запис", "сеанс", "хочу тату")),
@@ -1019,8 +1018,9 @@ def record_lead(chat_id, raw):
             "style": data.get("style"),
             "budget_known": data.get("budget") is not None,
         }
-        if deadline_match:
-            score_input["timeline_days"] = int(deadline_match.group(0))
+        timeline_days = deadline_in_days(data.get("deadline"))
+        if timeline_days is not None:
+            score_input["timeline_days"] = timeline_days
         score = score_lead(score_input)
         if storage_enabled():
             saved = save_lead(OWNER_ID or chat_id, data, score)
@@ -1410,7 +1410,6 @@ def _ask_ai_impl(chat_id, user_text, status_message_id=None):
             metrics = current_metrics(chat_id, 100)
             publications = current_publications(chat_id, 200)
             latest = (leads[-1].get("lead_data") or {}) if leads else {}
-            latest_deadline = re.search(r"\d+", str(latest.get("deadline") or ""))
             lead_payload = {
                 "asked_booking": any(word in str(latest.get("intent", "")).lower()
                                      for word in ("запис", "сеанс", "хочу тату")),
@@ -1419,8 +1418,9 @@ def _ask_ai_impl(chat_id, user_text, status_message_id=None):
                 "style": latest.get("style"),
                 "budget_known": latest.get("budget") is not None,
             }
-            if latest_deadline:
-                lead_payload["timeline_days"] = int(latest_deadline.group(0))
+            latest_timeline_days = deadline_in_days(latest.get("deadline"))
+            if latest_timeline_days is not None:
+                lead_payload["timeline_days"] = latest_timeline_days
             funnel_events = []
             for lead in leads:
                 stage = lead.get("stage", "new")
