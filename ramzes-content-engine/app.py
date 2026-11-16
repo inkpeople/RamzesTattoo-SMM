@@ -1230,7 +1230,11 @@ def _ask_ai_impl(chat_id, user_text, status_message_id=None):
             max_tokens=7000 if is_factory else 3500,
             full_team=is_content_request
         )
-        log.info("RAMZES AI selected task_type=%s agents=%s llm_calls=%s",\n                 team_result.get("task_plan", {}).get("task_type"),\n                 team_result.get("task_plan", {}).get("agents"),\n                 team_result.get("task_plan", {}).get("llm_agent_count"))\n        draft = team_result["draft"]
+        log.info("RAMZES AI selected task_type=%s agents=%s llm_calls=%s",
+                 team_result.get("task_plan", {}).get("task_type"),
+                 team_result.get("task_plan", {}).get("agents"),
+                 team_result.get("task_plan", {}).get("llm_agent_count"))
+        draft = team_result["draft"]
 
         progress("🛠 Этап 3/4 — редактирую тексты и привожу их к формату публикации.")
         if is_daily:
