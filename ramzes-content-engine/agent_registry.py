@@ -63,8 +63,8 @@ AGENT_BY_ID = {item.agent_id: item for item in AGENTS}
 
 CONTENT_WORDS = ("пост", "публикац", "threads", "контент", "сторис", "reels", "сценарий", "текст")
 RESEARCH_WORDS = ("конкурент", "рынок", "тренд", "исследуй", "что сейчас", "найди клиентов")
-ANALYTICS_WORDS = ("аналитик", "статистик", "охват", "просмотр", "метрик", "результат", "конверсия")
-SALES_WORDS = ("заявк", "запись", "клиент", "переписк", "комментар", "возражен", "акци", "оффер")
+ANALYTICS_WORDS = ("аналитик", "аналитика", "статистик", "охват", "просмотр", "метрик", "результат", "конверсия", "эффективность", "сравни публикац", "сравни пост")
+SALES_WORDS = ("заявк", "запись", "лид", "воронк", "клиент", "переписк", "комментар", "возражен", "акци", "оффер", "реферал", "отзыв", "репутац", "кампан", "сегмент", "вернуть клиента")
 
 
 def _has(text, phrases):
@@ -78,9 +78,9 @@ def plan_task(request, full_team=True, max_llm_agents=16):
     task_type = "general"
 
     direct_content = _has(text, ("напиши пост", "создай пост", "подготовь публикац", "сделай публикац", "напиши threads", "сценарий видео", "сценарии reels"))
-    is_content = _has(text, CONTENT_WORDS) and not (_has(text, RESEARCH_WORDS) and not direct_content)
     is_research = _has(text, RESEARCH_WORDS)
     is_analytics = _has(text, ANALYTICS_WORDS)
+    is_content = _has(text, CONTENT_WORDS) and not is_analytics and not (_has(text, RESEARCH_WORDS) and not direct_content)
     is_sales = _has(text, SALES_WORDS)
 
     if is_content:
@@ -112,6 +112,12 @@ def plan_task(request, full_team=True, max_llm_agents=16):
         selected += ["analytics", "data_auditor", "experiment_planner"]
         if _has(text, ("воронка", "конверсия в запись", "путь заявки")):
             selected.append("booking_funnel")
+        if _has(text, ("заявк", "лид", "обращение")):
+            selected += ["lead_qualifier", "lead_scorer"]
+        if _has(text, ("публикац", "пост", "threads", "reels")):
+            selected += ["headline_tester", "publication_control"]
+        if _has(text, ("репутац", "отзыв", "обратная связь")):
+            selected.append("reputation")
     elif is_sales:
         task_type = "sales"
         selected += ["conversion"]
@@ -129,6 +135,10 @@ def plan_task(request, full_team=True, max_llm_agents=16):
             selected.append("offer_economics")
         if _has(text, ("сегмент", "группы клиентов", "аудитория")):
             selected.append("audience_segments")
+        if _has(text, ("кампан", "промо", "контент-план")):
+            selected.append("campaigns")
+        if _has(text, ("репутац", "отзыв", "обратная связь")):
+            selected.append("reputation")
     else:
         selected += ["strategist", "copywriter"]
 
