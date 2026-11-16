@@ -59,6 +59,11 @@ class AgentRegistryTests(unittest.TestCase):
         self.assertIn("data_auditor", plan["agents"])
         self.assertIn("experiment_planner", plan["agents"])
 
+    def test_plain_publication_analysis_is_not_misrouted_to_content(self):
+        plan = plan_task("Сделай анализ публикаций")
+        self.assertEqual(plan["task_type"], "analytics")
+        self.assertIn("analytics", plan["agents"])
+
     def test_lead_and_booking_requests_route_to_funnel_tools(self):
         plan = plan_task("Проанализируй заявки и записи, найди потери в воронке")
         self.assertEqual(plan["task_type"], "sales")
