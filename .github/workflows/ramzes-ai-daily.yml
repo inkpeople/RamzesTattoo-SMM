@@ -1,6 +1,10 @@
 name: RAMZES AI daily intelligence
 
 on:
+  push:
+    branches:
+      - ramzes-ai-orchestrator-implementation
+  pull_request:
   schedule:
     # 06:00 Novosibirsk (UTC+7)
     - cron: "0 23 * * *"
