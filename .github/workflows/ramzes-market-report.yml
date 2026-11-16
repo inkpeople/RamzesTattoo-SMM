@@ -1,0 +1,49 @@
+name: RAMZES AI market report
+
+on:
+  schedule:
+    - cron: "0 */6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ramzes-market-report
+  cancel-in-progress: false
+
+jobs:
+  market-report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Restore market history
+        uses: actions/cache@v4
+        with:
+          path: .market-data/
+          key: ramzes-market-db-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            ramzes-market-db-${{ runner.os }}-
+
+      - name: Install dependencies
+        run: python -m pip install --disable-pip-version-check requests==2.32.3
+
+      - name: Run market analysis and send Telegram report
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_OWNER_ID: ${{ secrets.TELEGRAM_OWNER_ID }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          OPENROUTER_MODEL: ${{ vars.OPENROUTER_MODEL || 'deepseek/deepseek-chat' }}
+          BRAVE_SEARCH_API_KEY: ${{ secrets.BRAVE_SEARCH_API_KEY }}
+          MARKET_MONITOR_LOCATION: ${{ vars.MARKET_MONITOR_LOCATION || 'Новосибирск, Россия' }}
+          MARKET_REPORT_INTERVAL_HOURS: "6"
+          MARKET_DB_PATH: .market-data/ramzes_market_intel.sqlite3
+        run: python ramzes-content-engine/market_monitor_worker.py
