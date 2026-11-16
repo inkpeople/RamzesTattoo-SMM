@@ -832,7 +832,9 @@ def recent_content_for(chat_id, limit=20):
     persistent = load_recent_content(OWNER_ID or chat_id, limit) if storage_enabled() else []
     with memory_lock:
         temporary = list(content_history_cache)
-    return (persistent + temporary)[-limit:]
+    items = persistent + temporary
+    items.sort(key=lambda item: str(item.get("captured_at") or item.get("created_at") or ""))
+    return items[-limit:]
 
 
 def cache_content_pack(chat_id, content_type, answer, plan=""):
@@ -858,7 +860,9 @@ def current_metrics(chat_id, limit=50):
     persistent = load_recent_metrics(OWNER_ID or chat_id, limit) if storage_enabled() else []
     with memory_lock:
         temporary = list(metrics_cache)
-    return (persistent + temporary)[-limit:]
+    items = persistent + temporary
+    items.sort(key=lambda item: str(item.get("created_at") or ""))
+    return items[-limit:]
 
 
 def send_brand_profile(chat_id):
@@ -941,14 +945,18 @@ def current_leads(chat_id, limit=100):
     persistent = load_recent_leads(OWNER_ID or chat_id, limit) if storage_enabled() else []
     with memory_lock:
         temporary = list(leads_cache)
-    return (persistent + temporary)[-limit:]
+    items = persistent + temporary
+    items.sort(key=lambda item: str(item.get("created_at") or ""))
+    return items[-limit:]
 
 
 def current_bookings(chat_id, limit=200):
     persistent = load_recent_bookings(OWNER_ID or chat_id, limit) if storage_enabled() else []
     with memory_lock:
         temporary = list(bookings_cache)
-    return (persistent + temporary)[-limit:]
+    items = persistent + temporary
+    items.sort(key=lambda item: str(item.get("published_at") or item.get("created_at") or ""))
+    return items[-limit:]
 
 
 def current_publications(chat_id, limit=100):
