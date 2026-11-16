@@ -1,7 +1,7 @@
 import unittest
 from concurrent.futures import Future
 
-from runtime_guard import UpdateDispatcher
+from runtime_guard import TaskGate, UpdateDispatcher
 
 
 class FakeExecutor:
@@ -63,6 +63,21 @@ class UpdateDispatcherTests(unittest.TestCase):
         self.assertEqual(dispatcher.pending_count, 0)
         executor = FakeExecutor()
         self.assertEqual(dispatcher.submit(executor, lambda _: None, update), "queued")
+
+
+class TaskGateTests(unittest.TestCase):
+    def test_only_one_task_per_chat_can_run_at_a_time(self):
+        gate = TaskGate()
+        self.assertTrue(gate.try_enter(123))
+        self.assertFalse(gate.try_enter(123))
+        self.assertTrue(gate.try_enter(456))
+        gate.leave(123)
+        self.assertTrue(gate.try_enter(123))
+
+    def test_releasing_unknown_chat_is_safe(self):
+        gate = TaskGate()
+        gate.leave(999)
+        self.assertTrue(gate.try_enter(999))
 
 
 if __name__ == "__main__":
