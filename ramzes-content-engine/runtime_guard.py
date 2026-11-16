@@ -60,3 +60,23 @@ class UpdateDispatcher:
     def _complete(self, _future):
         with self._lock:
             self._pending = max(0, self._pending - 1)
+
+
+class TaskGate:
+    """Allow at most one expensive AI generation task per Telegram chat."""
+
+    def __init__(self):
+        self._lock = Lock()
+        self._active = set()
+
+    def try_enter(self, chat_id):
+        key = str(chat_id)
+        with self._lock:
+            if key in self._active:
+                return False
+            self._active.add(key)
+            return True
+
+    def leave(self, chat_id):
+        with self._lock:
+            self._active.discard(str(chat_id))
