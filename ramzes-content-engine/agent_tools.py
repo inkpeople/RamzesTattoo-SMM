@@ -96,6 +96,23 @@ def audit_metrics(metrics):
     return {"valid": not issues, "issues": issues, "checked": len(rows)}
 
 
+def analyze_booking_funnel(events):
+    """Count explicit funnel stages and calculate adjacent conversion rates."""
+    allowed = ("inquiry", "qualified", "consultation", "booked")
+    counts = {stage: 0 for stage in allowed}
+    for event in events or []:
+        if isinstance(event, dict) and event.get("stage") in counts:
+            counts[event["stage"]] += 1
+    rates = {}
+    for previous, current in zip(allowed, allowed[1:]):
+        denominator = counts[previous]
+        rates[previous + "_to_" + current] = (
+            round(counts[current] / denominator * 100, 2) if denominator else None
+        )
+    return {"counts": counts, "conversion_percent": rates,
+            "note": "Расчёт отражает только переданные события; пустые этапы не интерпретируются как нулевой спрос."}
+
+
 def check_publication(text, platform=None):
     """Basic deterministic preflight; it never publishes anything."""
     content = str(text or "").strip()
