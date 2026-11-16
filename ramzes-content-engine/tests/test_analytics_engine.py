@@ -1,7 +1,7 @@
 import unittest
 
 from analytics_engine import publication_analytics, funnel_analytics, build_analytics_snapshot
-from business_data import parse_lead, parse_booking
+from business_data import parse_lead, parse_booking, parse_publication
 
 
 class AnalyticsEngineTests(unittest.TestCase):
@@ -40,9 +40,35 @@ class AnalyticsEngineTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             parse_booking("дата: завтра; статус: booked")
 
-    def test_snapshot_keeps_limitations(self):
+    def test_snapshot_keeps_limitations_and_empty_totals(self):
         result = build_analytics_snapshot([], [], [])
         self.assertTrue(result["data_limitations"])
+        self.assertEqual(result["publications"]["totals"]["views"], 0)
+        self.assertIsNone(result["publications"]["totals"]["engagement_rate"])
+
+    def test_publication_ranking_requires_linked_metrics(self):
+        result = publication_analytics(
+            [{"platform": "threads", "publication_id": 7, "views": 100, "likes": 10}],
+            [{"id": 7, "platform": "threads", "topic": "Графика"}],
+        )
+        self.assertEqual(result["by_publication"][0]["publication_id"], "7")
+        self.assertEqual(result["by_publication"][0]["engagement_rate"], 0.1)
+
+    def test_booking_conversion_requires_explicit_lead_link(self):
+        result = funnel_analytics(
+            [{"id": 1, "stage": "new"}],
+            [{"status": "booked", "amount": 10000}],
+        )
+        self.assertIsNone(result["lead_to_booking_rate"])
+
+    def test_publication_parser(self):
+        result = parse_publication(
+            "platform=Threads; topic=Графика; hook=Почему; url=https://threads.net/p/abc; date=2026-11-17"
+        )
+        self.assertEqual(result["platform"], "threads")
+        self.assertEqual(result["topic"], "Графика")
+        with self.assertRaises(ValueError):
+            parse_publication("platform=Threads; topic=Test; url=javascript:alert(1)")
 
 
 if __name__ == "__main__":
