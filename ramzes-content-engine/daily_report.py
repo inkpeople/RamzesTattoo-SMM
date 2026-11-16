@@ -11,11 +11,11 @@ BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
 OWNER_ID = os.getenv("TELEGRAM_OWNER_ID", "").strip()
 
 
-def _get(table, select, since):
+def _get(table, select, since, date_column="created_at"):
     response = requests.get(
         f"{BASE}/rest/v1/{table}",
         params={"select": select, "telegram_user_id": f"eq.{OWNER_ID}",
-                "created_at": f"gte.{since}", "order": "created_at.desc", "limit": "500"},
+                date_column: f"gte.{since}", "order": "created_at.desc", "limit": "500"},
         headers={"apikey": KEY, "Authorization": f"Bearer {KEY}"},
         timeout=20,
     )
