@@ -102,7 +102,7 @@ def recent_sources(hours=24,limit=60):
     local = [dict(r) for r in rows]
     if storage_enabled():
         try:
-            persistent = load_recent_market_sources(OWNER_ID, limit)
+            persistent = load_recent_market_sources(OWNER_ID, limit, since=cutoff)
             for item in persistent:
                 local.append({
                     "url": item.get("source_url", ""),
