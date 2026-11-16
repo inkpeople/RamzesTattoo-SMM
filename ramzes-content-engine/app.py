@@ -500,7 +500,8 @@ ACTIONS = {
 }
 
 
-def analyze_tattoo_photo(chat_id, file_id, status_message_id=None):
+def analyze_tattoo_photo(chat_id, file_id, status_message_id=None, user_context=""):
+    """Analyze a tattoo photo visually; never infer technical or medical facts from pixels."""
     def progress(message):
         edit_status(chat_id, status_message_id, message)
 
@@ -510,51 +511,90 @@ def analyze_tattoo_photo(chat_id, file_id, status_message_id=None):
         return
 
     try:
-        progress("📥 Получаю фотографию и подготавливаю её для визуального анализа.")
-        file_info = tg("getFile", {"file_id": file_id})
-        file_path = (file_info or {}).get("file_path")
+        progress("📥 Получаю фотографию и проверяю качество исходного файла.")
+        file_info = tg("getFile", {"file_id": file_id}) or {}
+        file_path = file_info.get("file_path")
         if not file_path:
             raise RuntimeError("Telegram не вернул путь к фотографии")
-        file_response = requests.get(f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file_path}", timeout=35)
+
+        declared_size = file_info.get("file_size")
+        max_bytes = 10 * 1024 * 1024
+        if declared_size and int(declared_size) > max_bytes:
+            send_text(chat_id, "Фотография слишком большая для надёжной передачи модели. Отправь её как обычное фото в Telegram, а не файлом, или уменьши размер до 10 МБ.")
+            return
+
+        file_response = requests.get(
+            f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file_path}",
+            timeout=(10, 35)
+        )
         file_response.raise_for_status()
         image_bytes = file_response.content
         if not image_bytes:
             raise RuntimeError("Фотография пустая")
-        if len(image_bytes) > 12 * 1024 * 1024:
-            send_text(chat_id, "Файл слишком большой для анализа. Отправь фотографию как обычное фото в Telegram или уменьши размер до 12 МБ.")
+        if len(image_bytes) > max_bytes:
+            send_text(chat_id, "Фотография больше 10 МБ. Отправь её как обычное фото в Telegram или уменьши размер.")
             return
 
-        mime = file_response.headers.get("Content-Type", "image/jpeg").split(";")[0].strip()
-        if mime not in ("image/jpeg", "image/png", "image/webp"):
+        # Validate the actual file signature instead of trusting a response header.
+        if image_bytes.startswith(b"\xff\xd8\xff"):
             mime = "image/jpeg"
-        image_url = f"data:{mime};base64,{base64.b64encode(image_bytes).decode('ascii')}"
+        elif image_bytes.startswith(b"\x89PNG\r\n\x1a\n"):
+            mime = "image/png"
+        elif len(image_bytes) >= 12 and image_bytes[:4] == b"RIFF" and image_bytes[8:12] == b"WEBP":
+            mime = "image/webp"
+        else:
+            send_text(chat_id, "Не удалось распознать формат изображения. Отправь фотографию в формате JPG, PNG или WEBP.")
+            return
 
-        progress("🔍 Анализирую композицию, контраст, линии, светотень и детали на фотографии.")
+        image_url = f"data:{mime};base64,{base64.b64encode(image_bytes).decode('ascii')}"
+        progress("🔬 Проверяю читаемость фотографии и разбираю работу по зонам.")
+
         system_prompt = (
-            "Ты — опытный визуальный арт-директор и эксперт по художественному анализу татуировок. "
-            "Разбирай только то, что действительно различимо на присланном изображении. "
-            "Не выдумывай дефекты, не делай выводов о глубине внесения пигмента, санитарии, состоянии кожи, "
-            "заживлении, инфекции или медицинских проблемах. Не ставь диагнозов. "
-            "Не делай категоричных прогнозов о том, как татуировка будет выглядеть после заживления или через годы. "
-            "Учитывай качество фото, свет, ракурс, блики, растяжение кожи и фокус; если это мешает оценке — прямо скажи. "
-            "Отличай видимый недостаток от возможного эффекта освещения/фотографии. Не предлагай перекрывать или исправлять "
-            "участок, если по фото нельзя уверенно понять проблему. Не считай художественный выбор ошибкой только потому, "
-            "что он субъективен. Пиши профессионально, прямо, конструктивно и без лести. "
-            "Если участок невозможно оценить, попроси отдельный крупный план или фото при ровном освещении."
+            "Ты — строгий, опытный арт-директор и визуальный эксперт по художественной оценке татуировок. "
+            "Работай как профессиональный критик для тату-мастера: конкретно, технически осмысленно, честно и без комплиментов ради вежливости. "
+            "У тебя есть только фотография и, возможно, комментарий автора. Это не осмотр кожи и не проверка процесса нанесения. "
+            "Описывай только то, что действительно различимо. Не выдумывай дефекты, не угадывай намерения автора и не подменяй художественный вкус объективной ошибкой. "
+            "Всегда разделяй: (а) отчётливо видимую проблему, (б) возможную художественную альтернативу, (в) то, что нельзя установить по фото. "
+            "Для каждого замечания укажи степень уверенности: высокая / средняя / низкая. Низкую уверенность не превращай в рекомендацию что-либо исправлять. "
+            "Учитывай ракурс, фокус, свет, блики, тени, баланс белого, растяжение/изгиб поверхности и качество снимка. "
+            "Не делай выводов о глубине внесения пигмента, качестве работы иглой, санитарии, стерильности, состоянии кожи, заживлении, инфекции или медицинских проблемах. "
+            "Не ставь диагнозов и не давай медицинских советов. Не обещай и не прогнозируй точный вид после заживления или через годы. "
+            "Не утверждай, что пигмент внесён неравномерно, линия расплывётся или участок обязательно требует перекрытия: фото этого надёжно не доказывает. "
+            "Не советуй затемнять всё подряд. Любая рекомендация должна объяснять конкретную визуальную задачу и возможный компромисс. "
+            "Не предлагай радикальную переделку, если проблему нельзя локализовать. Если явных недостатков не видно, прямо скажи это. "
+            "Если фотография не позволяет оценить важную зону, запроси конкретный дополнительный ракурс/крупный план."
         )
+
+        context_text = (user_context or "").strip()
+        if context_text:
+            context_text = context_text[:1200]
+        else:
+            context_text = "Комментарий мастера не предоставлен. Не додумывай стадию работы, стиль, возраст татуировки или цель коррекции."
+
         user_prompt = (
-            "Сделай подробный профессиональный разбор этой татуировки для мастера. "
-            "Структура ответа строго такая:\n"
-            "1. ОБЩЕЕ ВПЕЧАТЛЕНИЕ — сюжет, стиль, цельность композиции.\n"
-            "2. ЧТО УЖЕ РАБОТАЕТ — сильные стороны изображения.\n"
-            "3. ЧТО НУЖНО ПОПРАВИТЬ — только конкретные видимые моменты; для каждого укажи участок, что именно видно и почему это стоит пересмотреть.\n"
-            "4. КАК ДОРАБОТАТЬ — конкретные художественные варианты: контраст/тональные переходы, линии, края форм, объём, детализация, фон, баланс элементов, "
-            "композиция и связь с анатомией — только когда это можно оценить.\n"
-            "5. ПРИОРИТЕТЫ — раздели на «важно», «можно улучшить», «не трогать».\n"
-            "6. ЧТО НЕЛЬЗЯ ОЦЕНИТЬ ПО ЭТОМУ ФОТО — перечисли ограничения, если они есть.\n"
-            "Не придумывай замечания ради объёма. Если работа выглядит цельно и явных исправлений не видно, скажи об этом честно. "
-            "Не давай абстрактных советов вроде «добавить контраста» без указания конкретной зоны и причины."
+            "Проведи профессиональный визуальный аудит татуировки для мастера RAMZES. "
+            "Комментарий автора (считай его контекстом, а не доказательством дефекта):\n"
+            + context_text + "\n\n"
+            "Сначала внимательно определи, что реально видно на фото. Не оценивай невидимые участки. "
+            "Используй строго следующую структуру:\n\n"
+            "1. КРАТКИЙ ВЕРДИКТ\n"
+            "В 2–4 предложениях: что за визуальная работа перед тобой, насколько цельно она воспринимается и есть ли очевидные зоны для доработки. Не ставь баллы и рейтинги.\n\n"
+            "2. ЧТО РАБОТАЕТ\n"
+            "Назови конкретные сильные стороны: силуэт, композиция, ритм, контраст, тональные отношения, пластика форм, детализация, цвет или связь с формой тела — только если это видно.\n\n"
+            "3. ЗАМЕЧАНИЯ ПО ЗОНАМ\n"
+            "Для каждого пункта укажи: ГДЕ (ориентир относительно изображения/части рисунка); ЧТО ВИЖУ (конкретный визуальный признак); ПОЧЕМУ ЭТО МЕШАЕТ (если действительно мешает); УВЕРЕННОСТЬ (высокая/средняя/низкая). "
+            "Не используй общие фразы «добавить контраста», «усилить объём» без указания зоны и причины. Если замечаний нет — так и напиши.\n\n"
+            "4. ПЛАН ДОРАБОТКИ\n"
+            "Дай последовательность действий от самого важного к второстепенному. Для каждого действия укажи цель и аккуратный способ улучшения. "
+            "Разделяй обязательную коррекцию и необязательную художественную альтернативу. Не предлагай исправлять зоны с низкой уверенностью.\n\n"
+            "5. ЧТО НЕ ТРОГАТЬ\n"
+            "Укажи сильные элементы, которые можно испортить чрезмерной доработкой, если такие есть.\n\n"
+            "6. ЧЕГО НЕ ХВАТАЕТ ДЛЯ ТОЧНОГО ВЫВОДА\n"
+            "Перечисли ограничения фото. Если нужен дополнительный снимок, точно укажи какой: общий фронтальный кадр, боковой ракурс, крупный план конкретной зоны, фото при ровном рассеянном свете и т. п.\n\n"
+            "7. ГЛАВНЫЙ ПРИОРИТЕТ\n"
+            "Одна самая полезная следующая задача. Если работа уже выглядит цельно и явной коррекции не требует, скажи это без искусственного поиска недостатков."
         )
+
         headers = {
             "Authorization": f"Bearer {OPENROUTER_API_KEY}",
             "Content-Type": "application/json",
@@ -567,34 +607,47 @@ def analyze_tattoo_photo(chat_id, file_id, status_message_id=None):
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": [
                     {"type": "text", "text": user_prompt},
-                    {"type": "image_url", "image_url": {"url": image_url}}
+                    {"type": "image_url", "image_url": {"url": image_url, "detail": "high"}}
                 ]}
             ],
-            "temperature": 0.25,
-            "max_tokens": 2200
+            "temperature": 0.2,
+            "max_tokens": 3000
         }
-        result = requests.post(OR_API, headers=headers, json=body, timeout=100)
+        result = requests.post(OR_API, headers=headers, json=body, timeout=(15, 120))
         result.raise_for_status()
         payload = result.json()
-        answer = (payload.get("choices") or [{}])[0].get("message", {}).get("content") or ""
-        if not answer.strip():
-            raise RuntimeError("Модель визуального анализа вернула пустой ответ")
-        progress("✅ Анализ готов. Отправляю разбор и рекомендации.")
-        send_text(chat_id, answer.strip())
+        message = (payload.get("choices") or [{}])[0].get("message") or {}
+        answer = message.get("content") or ""
+        if isinstance(answer, list):
+            answer = "\n".join(
+                str(part.get("text", "")) for part in answer
+                if isinstance(part, dict) and part.get("type") in ("text", "output_text")
+            )
+        if not str(answer).strip():
+            finish_reason = (payload.get("choices") or [{}])[0].get("finish_reason", "unknown")
+            raise RuntimeError(f"Модель визуального анализа вернула пустой ответ (finish_reason={finish_reason})")
+
+        progress("✅ Разбор готов. Отправляю замечания по зонам и план доработки.")
+        send_text(chat_id, str(answer).strip())
     except requests.Timeout:
         progress("⌛ Анализ занял слишком много времени.")
-        send_text(chat_id, "Не удалось завершить анализ: ИИ слишком долго обрабатывал фотографию. Попробуй ещё раз или отправь фото меньшего размера.")
+        send_text(chat_id, "Не удалось завершить анализ: сервис слишком долго обрабатывал фотографию. Попробуй отправить фото меньшего размера и повторить.")
     except requests.HTTPError as exc:
         status = exc.response.status_code if exc.response is not None else "unknown"
-        detail = exc.response.text[:500] if exc.response is not None else str(exc)
-        log.error("Tattoo image analysis HTTP error %s: %s", status, detail)
-        progress("⚠️ Сервис анализа фотографии вернул ошибку.")
-        send_text(chat_id, f"Не удалось проанализировать фото (HTTP {status}). Проверь доступность модели визуального анализа и баланс OpenRouter.")
+        # Do not log raw response bodies: provider errors can contain request metadata.
+        log.error("Tattoo image analysis provider returned HTTP %s", status)
+        progress("⚠️ Сервис визуального анализа вернул ошибку.")
+        if status in (400, 404, 422):
+            send_text(chat_id, f"Модель визуального анализа ({VISION_MODEL}) не приняла запрос (HTTP {status}). Нужно проверить её совместимость или настройки модели.")
+        elif status in (401, 402):
+            send_text(chat_id, "Сервис визуального анализа отклонил запрос. Проверь API-ключ и баланс OpenRouter.")
+        else:
+            send_text(chat_id, f"Сервис визуального анализа временно недоступен (HTTP {status}). Попробуй повторить позже.")
     except Exception as exc:
-        log.exception("Tattoo image analysis failed")
+        # Avoid echoing exception text: download URLs contain the Telegram bot token.
+        log.error("Tattoo image analysis failed (%s)", type(exc).__name__)
         progress("⚠️ Не удалось завершить анализ фотографии.")
-        send_text(chat_id, f"Ошибка анализа фотографии: {str(exc)[:300]}")
-
+        send_text(chat_id, "Не удалось обработать фотографию. Попробуй отправить её ещё раз в формате JPG, PNG или WEBP.")
 
 def tg(method, payload=None):
     if not TG_API:
@@ -1269,7 +1322,7 @@ def process_update(update):
             if requested or caption.startswith("/analyze") or caption.startswith("анализ"):
                 photo = message["photo"][-1]
                 status_id = send_text(chat_id, "⏳ Получил фото. Запускаю визуальный разбор татуировки.")
-                analyze_tattoo_photo(chat_id, photo.get("file_id"), status_id)
+                analyze_tattoo_photo(chat_id, photo.get("file_id"), status_id, caption.replace(/^\/?analyze\b\s*[:,—-]?\s*/i, "").replace(/^анализ\b\s*[:,—-]?\s*/i, "").trim())
             else:
                 send_text(chat_id, "Чтобы разобрать татуировку, нажми «📸 Анализ татуировки» в меню и отправь фото. Можно также добавить к фото подпись «анализ».")
             return
