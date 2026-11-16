@@ -20,3 +20,5 @@ services:
         sync: false
       - key: OPENROUTER_MODEL
         value: deepseek/deepseek-chat
+      - key: MAX_PENDING_UPDATES
+        value: "24"
