@@ -55,6 +55,14 @@ class AnalyticsEngineTests(unittest.TestCase):
         self.assertEqual(result["by_publication"][0]["publication_id"], "7")
         self.assertEqual(result["by_publication"][0]["engagement_rate"], 0.1)
 
+    def test_latest_publication_snapshot_prevents_double_counting(self):
+        result = publication_analytics([
+            {"platform": "threads", "publication_id": 7, "views": 100, "likes": 10, "captured_at": "2026-11-16"},
+            {"platform": "threads", "publication_id": 7, "views": 200, "likes": 20, "captured_at": "2026-11-17"},
+        ])
+        self.assertEqual(result["totals"]["views"], 200)
+        self.assertEqual(result["by_publication"][0]["views"], 200)
+
     def test_booking_conversion_requires_explicit_lead_link(self):
         result = funnel_analytics(
             [{"id": 1, "stage": "new"}],
