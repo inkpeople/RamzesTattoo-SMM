@@ -1,6 +1,6 @@
 import unittest
 
-from analytics_engine import publication_analytics, funnel_analytics, build_analytics_snapshot
+from analytics_engine import publication_analytics, funnel_analytics, build_analytics_snapshot, render_daily_report
 from business_data import parse_lead, parse_booking, parse_publication
 from storage import parse_metric_message
 
@@ -89,6 +89,16 @@ class AnalyticsEngineTests(unittest.TestCase):
     def test_negative_booking_amount_is_rejected(self):
         with self.assertRaises(ValueError):
             parse_booking("дата=2026-11-25; сумма=-15000; статус=booked")
+
+    def test_daily_report_separates_daily_activity_from_full_funnel(self):
+        report = render_daily_report(
+            [], [{"id": 1, "stage": "new"}],
+            [{"lead_id": 1, "status": "completed", "amount": 15000}],
+            daily_leads=[], daily_bookings=[],
+        )
+        self.assertIn("Новых заявок за сутки: 0", report)
+        self.assertIn("Всего в выборке: 1 заявок", report)
+        self.assertIn("Конверсия по связанным заявкам: 100.0%", report)
 
 
 if __name__ == "__main__":
