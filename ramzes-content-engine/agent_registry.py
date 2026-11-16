@@ -71,7 +71,7 @@ def _has(text, phrases):
     return any(phrase in text for phrase in phrases)
 
 
-def plan_task(request, full_team=True, max_llm_agents=8):
+def plan_task(request, full_team=True, max_llm_agents=16):
     """Return a deterministic, bounded plan. No network/model calls are made."""
     text = str(request or "").lower()
     selected = ["orchestrator"]
