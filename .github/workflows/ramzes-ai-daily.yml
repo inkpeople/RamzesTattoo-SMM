@@ -48,7 +48,7 @@ jobs:
       - name: Restore market-monitor cache
         uses: actions/cache/restore@v4
         with:
-          path: ${{ runner.temp }}/ramzes_market_intel.sqlite3
+          path: /tmp/ramzes_market_intel.sqlite3
           key: ramzes-market-${{ runner.os }}-${{ github.run_id }}
           restore-keys: |
             ramzes-market-${{ runner.os }}-
