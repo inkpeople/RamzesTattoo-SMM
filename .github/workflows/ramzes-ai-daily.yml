@@ -28,7 +28,7 @@ jobs:
       BRAVE_SEARCH_API_KEY: ${{ secrets.BRAVE_SEARCH_API_KEY }}
       RAMZES_STORAGE_ENABLED: "true"
       MARKET_MONITOR_LOCATION: "Новосибирск, Россия"
-      MARKET_DB_PATH: ${{ runner.temp }}/ramzes_market_intel.sqlite3
+      MARKET_DB_PATH: /tmp/ramzes_market_intel.sqlite3
 
     steps:
       - uses: actions/checkout@v4
