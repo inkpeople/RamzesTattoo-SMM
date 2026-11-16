@@ -12,7 +12,7 @@ from concurrent.futures import ThreadPoolExecutor
 import requests
 from flask import Flask, request, jsonify
 
-from runtime_guard import UpdateDispatcher
+from runtime_guard import TaskGate, UpdateDispatcher
 
 from storage import (
     load_chat_history, save_chat_history, clear_chat_history,
@@ -28,6 +28,7 @@ log = logging.getLogger("ramzes-content-engine")
 app = Flask(__name__)
 pool = ThreadPoolExecutor(max_workers=4)
 dispatcher = UpdateDispatcher(max_pending=os.getenv("MAX_PENDING_UPDATES", "24"))
+task_gate = TaskGate()
 memory = {}
 memory_lock = threading.Lock()
 content_history_cache = []
@@ -938,7 +939,7 @@ def run_analytics(chat_id):
     ask_ai(chat_id, prompt)
 
 
-def ask_ai(chat_id, user_text, status_message_id=None):
+def _ask_ai_impl(chat_id, user_text, status_message_id=None):
     def progress(message):
         edit_status(chat_id, status_message_id, message)
 
@@ -1310,6 +1311,16 @@ def ask_ai(chat_id, user_text, status_message_id=None):
         progress("⚠️ Не удалось завершить этап. Сейчас отправлю описание ошибки.")
         log.exception("AI request failed")
         send_text(chat_id, "Не получилось получить ответ от ИИ. Проверь настройки API и попробуй ещё раз. Подробности ошибки сохранены в журнале сервиса.")
+
+def ask_ai(chat_id, user_text, status_message_id=None):
+    if not task_gate.try_enter(chat_id):
+        send_text(chat_id, "⏳ Уже обрабатываю предыдущий запрос. Дождись ответа, затем отправь следующий.")
+        return
+    try:
+        _ask_ai_impl(chat_id, user_text, status_message_id)
+    finally:
+        task_gate.leave(chat_id)
+
 
 def allowed(user_id):
     # Fail closed: an unset owner ID must never grant access.
