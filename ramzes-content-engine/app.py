@@ -27,7 +27,7 @@ from storage import (
     load_recent_metrics, save_metric, parse_metric_message, healthcheck, enabled as storage_enabled,
     save_lead, load_recent_leads, save_booking, load_recent_bookings,
     save_publication, load_recent_publications, save_memory_event,
-    load_recent_memory_events, build_memory_events_context, save_agent_run,
+    load_recent_memory_events, build_memory_events_context, save_agent_run, update_lead_stage,
 )
 
 logging.basicConfig(level=logging.INFO)
@@ -1021,6 +1021,29 @@ def record_lead(chat_id, raw):
         send_text(chat_id, "Не удалось разобрать заявку: " + str(exc))
 
 
+def record_lead_stage(chat_id, raw):
+    fields = dict(re.findall(r"([a-zA-Z_]+)\s*=\s*([^;|]+)", str(raw or "")))
+    lead_id = fields.get("id", "").strip()
+    stage = fields.get("stage", "").strip().lower()
+    aliases = {"новая": "new", "квалифицирована": "qualified", "консультация": "consultation",
+               "записан": "booked", "завершена": "completed", "потеряна": "lost"}
+    stage = aliases.get(stage, stage)
+    if not lead_id.isdigit() or stage not in {"new", "qualified", "consultation", "booked", "completed", "lost"}:
+        send_text(chat_id, "Формат: /leadstage id=12; stage=qualified. Статусы: new, qualified, consultation, booked, completed, lost.")
+        return
+    if storage_enabled():
+        ok = update_lead_stage(OWNER_ID or chat_id, lead_id, stage)
+    else:
+        ok = False
+        with memory_lock:
+            for item in leads_cache:
+                if str(item.get("id")) == lead_id:
+                    item["stage"] = stage
+                    ok = True
+                    break
+    send_text(chat_id, f"✅ Статус заявки {lead_id} обновлён: {stage}." if ok else "Не удалось обновить заявку. Проверь ID и постоянное хранилище.")
+
+
 def record_booking(chat_id, raw):
     try:
         data = parse_booking(raw)
@@ -1689,6 +1712,9 @@ def process_update(update):
                 record_lead(chat_id, raw)
             else:
                 send_business_data_help(chat_id, "lead")
+            return
+        if text.startswith("/leadstage"):
+            record_lead_stage(chat_id, text[len("/leadstage"):].strip())
             return
         if text.startswith("/booking"):
             raw = text[len("/booking"):].strip()
