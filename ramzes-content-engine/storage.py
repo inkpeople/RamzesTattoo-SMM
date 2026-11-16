@@ -14,8 +14,8 @@ STORAGE_ENABLED = __import__("os").getenv("RAMZES_STORAGE_ENABLED", "false").str
 # This module runs only on the trusted bot server. Prefer the server-side
 # service-role key; never place it in a client app or commit it to Git.
 SUPABASE_SERVICE_KEY = __import__("os").getenv("SUPABASE_SERVICE_ROLE_KEY", "").strip()
-SUPABASE_KEY = SUPABASE_SERVICE_KEY or __import__("os").getenv("SUPABASE_PUBLISHABLE_KEY", "").strip()
-SUPABASE_AUTH_KEY = SUPABASE_SERVICE_KEY or __import__("os").getenv("SUPABASE_AUTH_KEY", "").strip() or SUPABASE_KEY
+SUPABASE_KEY = SUPABASE_SERVICE_KEY
+SUPABASE_AUTH_KEY = SUPABASE_SERVICE_KEY
 ENGINE_SECRET = __import__("os").getenv("RAMZES_ENGINE_STORAGE_SECRET", "").strip()
 REST_URL = f"{SUPABASE_URL}/rest/v1" if SUPABASE_URL else ""
 
@@ -55,7 +55,7 @@ DEFAULT_BRAND_PROFILE = {
 
 
 def enabled():
-    return bool(STORAGE_ENABLED and REST_URL and SUPABASE_KEY and ENGINE_SECRET)
+    return bool(STORAGE_ENABLED and REST_URL and SUPABASE_SERVICE_KEY and ENGINE_SECRET)
 
 
 def healthcheck():
