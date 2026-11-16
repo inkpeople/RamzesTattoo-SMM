@@ -52,6 +52,24 @@ class AgentRegistryTests(unittest.TestCase):
         plan = plan_task("Подготовь ответ клиенту на комментарий")
         self.assertTrue(plan["approval_required"])
 
+    def test_publication_analytics_routes_to_analytics_team(self):
+        plan = plan_task("Сделай аналитику публикаций и сравни результаты Threads")
+        self.assertEqual(plan["task_type"], "analytics")
+        self.assertIn("analytics", plan["agents"])
+        self.assertIn("data_auditor", plan["agents"])
+        self.assertIn("experiment_planner", plan["agents"])
+
+    def test_lead_and_booking_requests_route_to_funnel_tools(self):
+        plan = plan_task("Проанализируй заявки и записи, найди потери в воронке")
+        self.assertEqual(plan["task_type"], "sales")
+        self.assertIn("lead_scorer", plan["agents"])
+        self.assertIn("lead_qualifier", plan["agents"])
+        self.assertIn("booking_funnel", plan["agents"])
+
+    def test_portfolio_request_routes_to_archivist(self):
+        plan = plan_task("Разбери портфолио и разложи фотографии по стилям")
+        self.assertIn("portfolio_archivist", plan["agents"])
+
 
 class DeterministicAgentTests(unittest.TestCase):
     def test_lead_score_is_explainable(self):
