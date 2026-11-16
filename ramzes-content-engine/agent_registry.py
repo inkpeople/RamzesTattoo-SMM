@@ -161,6 +161,8 @@ def plan_task(request, full_team=True, max_llm_agents=16):
         "objection_analyst": ("возражения", "дорого", "сомнения клиента"),
         "reply_assistant": ("ответ клиенту", "что ответить клиенту", "сообщение клиенту"),
         "lead_finder": ("найди потенциальных клиентов", "ищут тату-мастера"),
+        "competitor_watch": ("сравни конкурентов", "цены конкурентов", "анализ конкурентов"),
+        "trend_radar": ("тренды", "тренд", "вирусные темы", "что сейчас популярно"),
     }
     for agent_id, markers in extra_triggers.items():
         if _has(text, markers):
