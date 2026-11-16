@@ -22,3 +22,36 @@ services:
         value: deepseek/deepseek-chat
       - key: MAX_PENDING_UPDATES
         value: "24"
+
+  - type: worker
+    name: ramzes-market-intelligence
+    runtime: python
+    plan: starter
+    rootDir: ramzes-content-engine
+    branch: ramzes-market-intelligence
+    autoDeployTrigger: off
+    buildCommand: pip install -r requirements.txt
+    startCommand: python market_monitor_worker.py
+    disk:
+      name: ramzes-market-data
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_OWNER_ID
+        sync: false
+      - key: OPENROUTER_API_KEY
+        sync: false
+      - key: OPENROUTER_MODEL
+        value: deepseek/deepseek-chat
+      - key: BRAVE_SEARCH_API_KEY
+        sync: false
+      - key: MARKET_MONITOR_LOCATION
+        value: "Новосибирск, Россия"
+      - key: MARKET_MONITOR_INTERVAL_SECONDS
+        value: "3600"
+      - key: MARKET_REPORT_INTERVAL_HOURS
+        value: "6"
+      - key: MARKET_DB_PATH
+        value: /var/data/ramzes_market_intel.sqlite3
