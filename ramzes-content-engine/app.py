@@ -3,6 +3,7 @@ import json
 import re
 import logging
 import threading
+import base64
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from concurrent.futures import ThreadPoolExecutor
@@ -28,12 +29,14 @@ memory_lock = threading.Lock()
 content_history_cache = []
 metrics_cache = []
 brand_profile_cache = None
+awaiting_tattoo_review = set()
 
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "").strip()
 OWNER_ID = os.getenv("TELEGRAM_OWNER_ID", "").strip()
 WEBHOOK_SECRET = os.getenv("TELEGRAM_WEBHOOK_SECRET", "").strip()
 MODEL = os.getenv("OPENROUTER_MODEL", "deepseek/deepseek-chat").strip()
+VISION_MODEL = os.getenv("OPENROUTER_VISION_MODEL", "google/gemini-2.5-flash").strip()
 APP_URL = os.getenv("RENDER_EXTERNAL_URL", "").rstrip("/")
 
 TG_API = f"https://api.telegram.org/bot{BOT_TOKEN}" if BOT_TOKEN else ""
@@ -478,6 +481,7 @@ MENU = [
     [("📚 Библиотека", "library"), ("🧬 Профиль бренда", "profile")],
     [("📈 Внести статистику", "metric"), ("♻️ Очистить контекст", "reset")],
     [("🔬 Анализ рынка и конкурентов", "market")],
+    [("📸 Анализ татуировки", "tattoo_review")],
 ]
 
 ACTIONS = {
@@ -494,6 +498,102 @@ ACTIONS = {
     "shoots": "Предложи 20 конкретных съёмочных концепций для узнаваемого личного бренда RAMZES: не только татуировки, но и художественный взгляд, визуальная насмотренность, разборы, авторская позиция, эскизы, детали, портфолио и творческие наблюдения. Для каждой: идея, первые 2 секунды, список реально доступных кадров, текст на экране/озвучка, монтаж и CTA. Не описывай несуществующие процессы и не требуй съёмки того, чего нет в исходных материалах.",
     "factory": "РАБОТАЙ КАК КОНТЕНТ-ЗАВОД ЛИЧНОГО БРЕНДА RAMZES. Создай большой недельный пакет контента, готовый к использованию: 10 разных Threads-постов; 3 сценария коротких видео; 3 цепочки Stories по 3–5 кадров; 2 содержательных поста для VK/Telegram. Все материалы должны развивать один узнаваемый образ RAMZES, но иметь разные темы, углы, эмоции и задачи. Распредели контент между авторской позицией, экспертностью, художественным вкусом/насмотренностью, юмором, личностью (только подтверждённой), портфолио и мягкой коммерцией. Не копируй один текст между площадками — адаптируй. Каждый Threads: хук + цельная мысль + естественный финал/CTA. Каждое видео: хук первых 2 секунд, покадровый план, экранный текст/озвучка, монтаж, CTA и подпись. Каждая Stories: кадры с конкретным текстом. VK/Telegram: полноценный готовый текст с заголовком. Сначала коротко покажи тематическую карту, чтобы было видно отсутствие повторов, затем весь контент. Не выдумывай личные факты, биографию, истории и цитаты клиентов, статистику, цены, акции, даты, свободные окна, методы работы и технические гарантии. Если личного материала недостаточно, делай сильный контент на подтверждённом художественном принципе и в конце задай не более трёх конкретных вопросов для будущего усиления бренда."
 }
+
+
+def analyze_tattoo_photo(chat_id, file_id, status_message_id=None):
+    def progress(message):
+        edit_status(chat_id, status_message_id, message)
+
+    if not OPENROUTER_API_KEY:
+        progress("⚠️ Не настроен ИИ-сервис для анализа.")
+        send_text(chat_id, "Не настроен OPENROUTER_API_KEY на хостинге.")
+        return
+
+    try:
+        progress("📥 Получаю фотографию и подготавливаю её для визуального анализа.")
+        file_info = tg("getFile", {"file_id": file_id})
+        file_path = (file_info or {}).get("file_path")
+        if not file_path:
+            raise RuntimeError("Telegram не вернул путь к фотографии")
+        file_response = requests.get(f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file_path}", timeout=35)
+        file_response.raise_for_status()
+        image_bytes = file_response.content
+        if not image_bytes:
+            raise RuntimeError("Фотография пустая")
+        if len(image_bytes) > 12 * 1024 * 1024:
+            send_text(chat_id, "Файл слишком большой для анализа. Отправь фотографию как обычное фото в Telegram или уменьши размер до 12 МБ.")
+            return
+
+        mime = file_response.headers.get("Content-Type", "image/jpeg").split(";")[0].strip()
+        if mime not in ("image/jpeg", "image/png", "image/webp"):
+            mime = "image/jpeg"
+        image_url = f"data:{mime};base64,{base64.b64encode(image_bytes).decode('ascii')}"
+
+        progress("🔍 Анализирую композицию, контраст, линии, светотень и детали на фотографии.")
+        system_prompt = (
+            "Ты — опытный визуальный арт-директор и эксперт по художественному анализу татуировок. "
+            "Разбирай только то, что действительно различимо на присланном изображении. "
+            "Не выдумывай дефекты, не делай выводов о глубине внесения пигмента, санитарии, состоянии кожи, "
+            "заживлении, инфекции или медицинских проблемах. Не ставь диагнозов. "
+            "Не делай категоричных прогнозов о том, как татуировка будет выглядеть после заживления или через годы. "
+            "Учитывай качество фото, свет, ракурс, блики, растяжение кожи и фокус; если это мешает оценке — прямо скажи. "
+            "Отличай видимый недостаток от возможного эффекта освещения/фотографии. Не предлагай перекрывать или исправлять "
+            "участок, если по фото нельзя уверенно понять проблему. Не считай художественный выбор ошибкой только потому, "
+            "что он субъективен. Пиши профессионально, прямо, конструктивно и без лести. "
+            "Если участок невозможно оценить, попроси отдельный крупный план или фото при ровном освещении."
+        )
+        user_prompt = (
+            "Сделай подробный профессиональный разбор этой татуировки для мастера. "
+            "Структура ответа строго такая:\n"
+            "1. ОБЩЕЕ ВПЕЧАТЛЕНИЕ — сюжет, стиль, цельность композиции.\n"
+            "2. ЧТО УЖЕ РАБОТАЕТ — сильные стороны изображения.\n"
+            "3. ЧТО НУЖНО ПОПРАВИТЬ — только конкретные видимые моменты; для каждого укажи участок, что именно видно и почему это стоит пересмотреть.\n"
+            "4. КАК ДОРАБОТАТЬ — конкретные художественные варианты: контраст/тональные переходы, линии, края форм, объём, детализация, фон, баланс элементов, "
+            "композиция и связь с анатомией — только когда это можно оценить.\n"
+            "5. ПРИОРИТЕТЫ — раздели на «важно», «можно улучшить», «не трогать».\n"
+            "6. ЧТО НЕЛЬЗЯ ОЦЕНИТЬ ПО ЭТОМУ ФОТО — перечисли ограничения, если они есть.\n"
+            "Не придумывай замечания ради объёма. Если работа выглядит цельно и явных исправлений не видно, скажи об этом честно. "
+            "Не давай абстрактных советов вроде «добавить контраста» без указания конкретной зоны и причины."
+        )
+        headers = {
+            "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+            "Content-Type": "application/json",
+            "HTTP-Referer": APP_URL or "https://ramzes-content-engine.onrender.com",
+            "X-Title": "RAMZES TATTOO VISUAL REVIEW"
+        }
+        body = {
+            "model": VISION_MODEL,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": [
+                    {"type": "text", "text": user_prompt},
+                    {"type": "image_url", "image_url": {"url": image_url}}
+                ]}
+            ],
+            "temperature": 0.25,
+            "max_tokens": 2200
+        }
+        result = requests.post(OR_API, headers=headers, json=body, timeout=100)
+        result.raise_for_status()
+        payload = result.json()
+        answer = (payload.get("choices") or [{}])[0].get("message", {}).get("content") or ""
+        if not answer.strip():
+            raise RuntimeError("Модель визуального анализа вернула пустой ответ")
+        progress("✅ Анализ готов. Отправляю разбор и рекомендации.")
+        send_text(chat_id, answer.strip())
+    except requests.Timeout:
+        progress("⌛ Анализ занял слишком много времени.")
+        send_text(chat_id, "Не удалось завершить анализ: ИИ слишком долго обрабатывал фотографию. Попробуй ещё раз или отправь фото меньшего размера.")
+    except requests.HTTPError as exc:
+        status = exc.response.status_code if exc.response is not None else "unknown"
+        detail = exc.response.text[:500] if exc.response is not None else str(exc)
+        log.error("Tattoo image analysis HTTP error %s: %s", status, detail)
+        progress("⚠️ Сервис анализа фотографии вернул ошибку.")
+        send_text(chat_id, f"Не удалось проанализировать фото (HTTP {status}). Проверь доступность модели визуального анализа и баланс OpenRouter.")
+    except Exception as exc:
+        log.exception("Tattoo image analysis failed")
+        progress("⚠️ Не удалось завершить анализ фотографии.")
+        send_text(chat_id, f"Ошибка анализа фотографии: {str(exc)[:300]}")
 
 
 def tg(method, payload=None):
@@ -1122,6 +1222,11 @@ def process_update(update):
             if not allowed(user_id):
                 send_text(chat_id, "Этот бот закрыт для личного использования.")
                 return
+            if action == "tattoo_review":
+                with memory_lock:
+                    awaiting_tattoo_review.add(str(chat_id))
+                send_text(chat_id, "📸 Пришли фотографию татуировки, которую нужно разобрать. Лучше отправить исходное фото без фильтров, с хорошим фокусом и ровным освещением. Я отмечу сильные стороны, видимые недочёты и конкретные варианты доработки.")
+                return
             if action == "reset":
                 with memory_lock:
                     memory.pop(str(chat_id), None)
@@ -1151,12 +1256,26 @@ def process_update(update):
         chat_id = message.get("chat", {}).get("id")
         user_id = message.get("from", {}).get("id")
         text = (message.get("text") or "").strip()
-        if not text:
-            if message.get("photo"):
-                send_text(chat_id, "Пока я принимаю текстовые запросы. Опиши статистику или задачу сообщением.")
-            return
 
         if not allowed(user_id):
+            send_text(chat_id, "Этот бот закрыт для личного использования.")
+            return
+
+        if message.get("photo"):
+            with memory_lock:
+                requested = str(chat_id) in awaiting_tattoo_review
+                awaiting_tattoo_review.discard(str(chat_id))
+            caption = text.lower()
+            if requested or caption.startswith("/analyze") or caption.startswith("анализ"):
+                photo = message["photo"][-1]
+                status_id = send_text(chat_id, "⏳ Получил фото. Запускаю визуальный разбор татуировки.")
+                analyze_tattoo_photo(chat_id, photo.get("file_id"), status_id)
+            else:
+                send_text(chat_id, "Чтобы разобрать татуировку, нажми «📸 Анализ татуировки» в меню и отправь фото. Можно также добавить к фото подпись «анализ».")
+            return
+
+        if not text:
+            return
             send_text(chat_id, "Этот бот закрыт для личного использования.")
             return
 
@@ -1211,6 +1330,11 @@ def process_update(update):
         labels = {label: key for row in MENU for label, key in row}
         if text in labels:
             action = labels[text]
+            if action == "tattoo_review":
+                with memory_lock:
+                    awaiting_tattoo_review.add(str(chat_id))
+                send_text(chat_id, "📸 Пришли фотографию татуировки, которую нужно разобрать. Лучше отправить исходное фото без фильтров, с хорошим фокусом и ровным освещением. Я отмечу сильные стороны, видимые недочёты и конкретные варианты доработки.")
+                return
             if action == "reset":
                 with memory_lock:
                     memory.pop(str(chat_id), None)
