@@ -12,10 +12,13 @@ OWNER_ID = os.getenv("TELEGRAM_OWNER_ID", "").strip()
 
 
 def _get(table, select, since, date_column="created_at"):
+    params = {"select": select, "telegram_user_id": f"eq.{OWNER_ID}",
+              "order": f"{date_column}.desc", "limit": "500"}
+    if since:
+        params[date_column] = f"gte.{since}"
     response = requests.get(
         f"{BASE}/rest/v1/{table}",
-        params={"select": select, "telegram_user_id": f"eq.{OWNER_ID}",
-                date_column: f"gte.{since}", "order": f"{date_column}.desc", "limit": "500"},
+        params=params,
         headers={"apikey": KEY, "Authorization": f"Bearer {KEY}"},
         timeout=20,
     )
@@ -48,7 +51,7 @@ def main():
     leads = _get("ramzes_content_engine_leads", "stage,created_at,lead_data", since)
     bookings = _get("ramzes_content_engine_bookings", "status,amount,created_at,session_date", since)
     market = _get("ramzes_content_engine_market_sources", "id,created_at", since)
-    publications = _get("ramzes_content_engine_publications", "id,platform,topic,hook,url,published_at", since)
+    publications = _get("ramzes_content_engine_publications", "id,platform,topic,hook,url,published_at", None)
     send_report(render_daily_report(metrics, leads, bookings, len(market), publications))
 
 
