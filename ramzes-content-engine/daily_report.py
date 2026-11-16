@@ -48,7 +48,8 @@ def main():
     leads = _get("ramzes_content_engine_leads", "stage,created_at,lead_data", since)
     bookings = _get("ramzes_content_engine_bookings", "status,amount,created_at,session_date", since)
     market = _get("ramzes_content_engine_market_sources", "id,created_at", since)
-    send_report(render_daily_report(metrics, leads, bookings, len(market)))
+    publications = _get("ramzes_content_engine_publications", "id,platform,topic,hook,url,published_at", since)
+    send_report(render_daily_report(metrics, leads, bookings, len(market), publications))
 
 
 if __name__ == "__main__":
