@@ -1127,11 +1127,12 @@ def run_analytics(chat_id):
     metrics = current_metrics(chat_id, 100)
     leads = current_leads(chat_id, 200)
     bookings = current_bookings(chat_id, 300)
+    publications = current_publications(chat_id, 200)
     if not metrics and not leads and not bookings:
         send_text(chat_id, "Пока нет данных для аналитики. Добавь статистику через /metric, заявки через /lead и записи через /booking.")
         return
-    snapshot = build_analytics_snapshot(metrics, leads, bookings)
-    send_text(chat_id, render_daily_report(metrics, leads, bookings))
+    snapshot = build_analytics_snapshot(metrics, leads, bookings, publications)
+    send_text(chat_id, render_daily_report(metrics, leads, bookings, publications=publications))
     ask_ai(chat_id, "Проанализируй аналитику публикаций и воронку записи по сохранённым данным. Выдели факты, ограничения выборки и три следующих эксперимента.")
 
 
@@ -1403,6 +1404,7 @@ def _ask_ai_impl(chat_id, user_text, status_message_id=None):
             leads = current_leads(chat_id, 200)
             bookings = current_bookings(chat_id, 300)
             metrics = current_metrics(chat_id, 100)
+            publications = current_publications(chat_id, 200)
             latest = (leads[-1].get("lead_data") or {}) if leads else {}
             lead_payload = {
                 "asked_booking": any(word in str(latest.get("intent", "")).lower()
@@ -1441,6 +1443,7 @@ def _ask_ai_impl(chat_id, user_text, status_message_id=None):
                 "\n\nСТРУКТУРИРОВАННЫЕ ДАННЫЕ ВЛАДЕЛЬЦА (без персональных данных клиентов):\n"
                 + json.dumps({
                     "publication_metrics": metrics,
+                    "publications": publications,
                     "leads": leads,
                     "bookings": bookings,
                     "funnel_events": funnel_events,
