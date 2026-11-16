@@ -1389,6 +1389,15 @@ def _ask_ai_impl(chat_id, user_text, status_message_id=None):
                 "recent_topics": [item.get("topic", "") for item in recent_content],
                 "new_topics": [],
             }
+            team_context += (
+                "\n\nСТРУКТУРИРОВАННЫЕ ДАННЫЕ ВЛАДЕЛЬЦА (без персональных данных клиентов):\n"
+                + json.dumps({
+                    "publication_metrics": metrics,
+                    "leads": leads,
+                    "bookings": bookings,
+                    "funnel_events": funnel_events,
+                }, ensure_ascii=False, default=str)[:18000]
+            )
             progress("🧠 Подбираю специализированную команду и проверяю доступные данные.")
             team = run_specialist_team(
                 request_ai, user_text,
