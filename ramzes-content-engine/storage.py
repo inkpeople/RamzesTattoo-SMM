@@ -415,7 +415,7 @@ def parse_metric_message(text):
     metrics = {key: value for key, value in metrics.items() if value is not None}
     if not metrics:
         return None
-    publication_match = re.search(r"(?:publication|публикация)\s*#?\s*(\d+)", raw, flags=re.IGNORECASE)
+    publication_match = re.search(r"(?:publication|публикация)\s*[:=#]?\s*(\d+)", raw, flags=re.IGNORECASE)
     return {
         "platform": platform,
         "metrics": metrics,
