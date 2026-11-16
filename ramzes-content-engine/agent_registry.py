@@ -77,7 +77,8 @@ def plan_task(request, full_team=True, max_llm_agents=16):
     selected = ["orchestrator"]
     task_type = "general"
 
-    is_content = _has(text, CONTENT_WORDS)
+    direct_content = _has(text, ("напиши пост", "создай пост", "подготовь публикац", "сделай публикац", "напиши threads", "сценарий видео", "сценарии reels"))
+    is_content = _has(text, CONTENT_WORDS) and not (_has(text, RESEARCH_WORDS) and not direct_content)
     is_research = _has(text, RESEARCH_WORDS)
     is_analytics = _has(text, ANALYTICS_WORDS)
     is_sales = _has(text, SALES_WORDS)
