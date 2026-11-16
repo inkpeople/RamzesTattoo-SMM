@@ -420,7 +420,7 @@ def run_content_team(model_call, request, context="", max_tokens=5000,
 
     if "anti_repeat" in task_plan["agents"]:
         topic_candidates = re.findall(
-            r"(?im)^(?:Тема|Заголовок)\\s*[:—-]\\s*(.+)$", draft
+            r"(?im)^(?:Тема|Заголовок)\s*[:—-]\s*(.+)$", draft
         )
         if not topic_candidates:
             topic_candidates = [line.strip() for line in draft.splitlines()
