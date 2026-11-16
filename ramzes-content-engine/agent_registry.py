@@ -123,7 +123,7 @@ def plan_task(request, full_team=True, max_llm_agents=16):
         selected += ["conversion"]
         if _has(text, ("заявк", "обращение")):
             selected += ["lead_qualifier", "lead_scorer"]
-        if _has(text, ("воронка", "запись", "конверсия")):
+        if _has(text, ("воронк", "запис", "конверсия")):
             selected.append("booking_funnel")
         if _has(text, ("ответ", "переписк", "комментар")):
             selected += ["community", "reply_assistant"]
