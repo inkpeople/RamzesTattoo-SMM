@@ -114,14 +114,21 @@ def build_analytics_snapshot(metrics, leads, bookings, publications=None):
     }
 
 
-def render_daily_report(metrics, leads, bookings, market_count=0, publications=None):
+def render_daily_report(metrics, leads, bookings, market_count=0, publications=None, daily_leads=None, daily_bookings=None):
     snapshot = build_analytics_snapshot(metrics, leads, bookings, publications)
     p = snapshot["publications"]
     f = snapshot["booking_funnel"]
     t = p["totals"]
     rate = "нет данных" if t["engagement_rate"] is None else f'{t["engagement_rate"]:.1%}'
     conversion = "нет данных" if f["lead_to_booking_rate"] is None else f'{f["lead_to_booking_rate"]:.1%}'
-    avg = "нет данных" if f["average_completed_check"] is None else f'{f["average_completed_check"]:,.0f} ₽'.replace(",", " ")
+    activity_leads = list(leads or []) if daily_leads is None else list(daily_leads or [])
+    activity_bookings = list(bookings or []) if daily_bookings is None else list(daily_bookings or [])
+    daily_completed = [item for item in activity_bookings if item.get("status") == "completed" and item.get("amount") is not None]
+    daily_revenue = sum(_number(item, "amount") for item in daily_completed)
+    daily_average = daily_revenue / len(daily_completed) if daily_completed else None
+    daily_avg = "нет данных" if daily_average is None else f'{daily_average:,.0f} ₽'.replace(",", " ")
+    leads_label = "Новых заявок за сутки" if daily_leads is not None else "Заявок в выборке"
+    bookings_label = "Записей за сутки" if daily_bookings is not None else "Записей в выборке"
     ranked = p.get("by_publication") or []
     top_line = ""
     if ranked:
@@ -133,10 +140,11 @@ def render_daily_report(metrics, leads, bookings, market_count=0, publications=N
         f"Снимков статистики в выборке: {p['sample_size']}\n"
         f"Просмотры: {t['views']} · взаимодействия: {t['likes'] + t['comments'] + t['reposts'] + t['saves']}\n"
         f"Вовлечённость от просмотров: {rate}\n"
-        f"Заявки: {f['leads']} · записи: {f['booked_sessions']} · завершено: {f['completed_sessions']}\n"
-        f"Конверсия заявка → запись: {conversion}\n"
-        f"Выручка по завершённым сеансам: {f['completed_revenue']:,.0f} ₽\n"
-        f"Средний чек по завершённым сеансам: {avg}\n"
+        f"{leads_label}: {len(activity_leads)} · {bookings_label}: {len(activity_bookings)}\n"
+        f"Всего в выборке: {f['leads']} заявок · {f['booked_sessions']} записей · завершено: {f['completed_sessions']}\n"
+        f"Конверсия по связанным заявкам: {conversion}\n"
+        f"Выручка за период по завершённым сеансам: {daily_revenue:,.0f} ₽\n"
+        f"Средний чек за период: {daily_avg}\n"
         f"Новые публичные материалы рынка: {int(market_count)}\n"
         + top_line + "\n"
         + "Важно: сводка учитывает только фактически переданные данные. "
