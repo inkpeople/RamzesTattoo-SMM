@@ -21,6 +21,8 @@ def publication_analytics(metrics, publications=None):
             value = _number(row, key)
             totals[key] += value
             by_platform[platform][key] += value
+    for key in ("views", "likes", "comments", "reposts", "saves", "profile_visits", "followers_gained", "inbound_messages", "bookings"):
+        totals.setdefault(key, 0.0)
     views = totals["views"]
     interactions = totals["likes"] + totals["comments"] + totals["reposts"] + totals["saves"]
     totals_out = {key: int(value) if value.is_integer() else round(value, 2) for key, value in totals.items()}
@@ -69,13 +71,19 @@ def funnel_analytics(leads, bookings):
     completed = sum(1 for item in bookings if item.get("status") == "completed")
     cancelled = sum(1 for item in bookings if item.get("status") == "cancelled")
     amounts = [_number(item, "amount") for item in bookings if item.get("status") == "completed" and item.get("amount") is not None]
+    lead_ids = {str(item.get("id")) for item in leads if item.get("id") is not None}
+    linked_lead_ids = {
+        str(item.get("lead_id")) for item in bookings
+        if item.get("lead_id") is not None and str(item.get("lead_id")) in lead_ids
+        and item.get("status") in {"booked", "completed"}
+    }
     return {
         "leads": len(leads),
         "qualified_leads": qualified,
         "booked_sessions": booked,
         "completed_sessions": completed,
         "cancelled_sessions": cancelled,
-        "lead_to_booking_rate": round(booked / len(leads), 4) if leads else None,
+        "lead_to_booking_rate": round(len(linked_lead_ids) / len(leads), 4) if leads and any(item.get("lead_id") is not None for item in bookings) else None,
         "booking_completion_rate": round(completed / booked, 4) if booked else None,
         "completed_revenue": round(sum(amounts), 2),
         "average_completed_check": round(sum(amounts) / len(amounts), 2) if amounts else None,
