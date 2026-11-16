@@ -1,7 +1,7 @@
 import unittest
 
 from analytics_engine import publication_analytics, funnel_analytics, build_analytics_snapshot, render_daily_report
-from business_data import parse_lead, parse_booking, parse_publication
+from business_data import parse_lead, parse_booking, parse_publication, deadline_in_days
 from storage import parse_metric_message
 
 
@@ -89,6 +89,11 @@ class AnalyticsEngineTests(unittest.TestCase):
     def test_negative_booking_amount_is_rejected(self):
         with self.assertRaises(ValueError):
             parse_booking("дата=2026-11-25; сумма=-15000; статус=booked")
+
+    def test_deadline_conversion_requires_explicit_units(self):
+        self.assertEqual(deadline_in_days("через 3 недели"), 21)
+        self.assertEqual(deadline_in_days("30 дней"), 30)
+        self.assertIsNone(deadline_in_days("примерно скоро"))
 
     def test_daily_report_separates_daily_activity_from_full_funnel(self):
         report = render_daily_report(
