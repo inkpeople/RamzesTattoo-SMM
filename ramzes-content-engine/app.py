@@ -1410,6 +1410,7 @@ def _ask_ai_impl(chat_id, user_text, status_message_id=None):
             metrics = current_metrics(chat_id, 100)
             publications = current_publications(chat_id, 200)
             latest = (leads[-1].get("lead_data") or {}) if leads else {}
+            latest_deadline = re.search(r"\d+", str(latest.get("deadline") or ""))
             lead_payload = {
                 "asked_booking": any(word in str(latest.get("intent", "")).lower()
                                      for word in ("запис", "сеанс", "хочу тату")),
@@ -1418,6 +1419,8 @@ def _ask_ai_impl(chat_id, user_text, status_message_id=None):
                 "style": latest.get("style"),
                 "budget_known": latest.get("budget") is not None,
             }
+            if latest_deadline:
+                lead_payload["timeline_days"] = int(latest_deadline.group(0))
             funnel_events = []
             for lead in leads:
                 stage = lead.get("stage", "new")
