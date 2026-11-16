@@ -6,6 +6,32 @@ import app as app_module
 import storage as storage_module
 
 
+class PrivateChatTests(unittest.TestCase):
+    def test_group_message_is_ignored_before_processing(self):
+        update = {
+            "update_id": 77,
+            "message": {
+                "chat": {"id": -100123, "type": "supergroup"},
+                "from": {"id": 123456789},
+                "text": "/start",
+            },
+        }
+        with patch.object(app_module, "send_text") as send_text:
+            app_module.process_update(update)
+        send_text.assert_not_called()
+
+    def test_private_message_is_allowed_by_chat_filter(self):
+        update = {
+            "update_id": 78,
+            "message": {
+                "chat": {"id": 123456789, "type": "private"},
+                "from": {"id": 123456789},
+                "text": "/start",
+            },
+        }
+        self.assertTrue(app_module.is_private_update(update))
+
+
 class AccessControlTests(unittest.TestCase):
     def setUp(self):
         self.original_owner = app_module.OWNER_ID
