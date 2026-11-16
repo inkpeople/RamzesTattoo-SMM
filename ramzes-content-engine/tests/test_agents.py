@@ -51,7 +51,7 @@ class AgentPipelineTests(unittest.TestCase):
         self.assertIn("headline_tester", result["agent_notes"])
         self.assertIn("experiment_planner", result["agent_notes"])
         self.assertIn("anti_repeat", result["agent_notes"])
-        self.assertTrue(any("HEADLINE" in title.upper() for title in calls))
+        self.assertTrue(any("ЗАГОЛОВ" in title.upper() for title in calls))
 
     def test_research_agent_requests_web_search(self):
         calls = []
