@@ -58,6 +58,29 @@ class WebhookSecurityTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         submit.assert_called_once()
 
+    def test_webhook_returns_retryable_error_when_queue_is_full(self):
+        app_module.WEBHOOK_SECRET = "expected-secret"
+        with patch.object(app_module.dispatcher, "submit", return_value="full"):
+            response = self.client.post(
+                "/telegram",
+                json={"update_id": 2},
+                headers={"X-Telegram-Bot-Api-Secret-Token": "expected-secret"},
+            )
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.get_json()["error"], "queue_full")
+
+    def test_webhook_acknowledges_duplicate_without_queueing_again(self):
+        app_module.WEBHOOK_SECRET = "expected-secret"
+        with patch.object(app_module.dispatcher, "submit", return_value="duplicate") as submit:
+            response = self.client.post(
+                "/telegram",
+                json={"update_id": 3},
+                headers={"X-Telegram-Bot-Api-Secret-Token": "expected-secret"},
+            )
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.get_json()["duplicate"])
+        submit.assert_called_once()
+
 
 class StorageSecurityTests(unittest.TestCase):
     def test_storage_requires_service_role_key(self):
