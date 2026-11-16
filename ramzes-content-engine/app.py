@@ -12,6 +12,8 @@ from concurrent.futures import ThreadPoolExecutor
 import requests
 from flask import Flask, request, jsonify
 
+from runtime_guard import TaskGate, UpdateDispatcher
+
 from storage import (
     load_chat_history, save_chat_history, clear_chat_history,
     load_brand_profile, add_brand_fact, build_brand_context,
@@ -25,6 +27,8 @@ log = logging.getLogger("ramzes-content-engine")
 
 app = Flask(__name__)
 pool = ThreadPoolExecutor(max_workers=4)
+dispatcher = UpdateDispatcher(max_pending=os.getenv("MAX_PENDING_UPDATES", "24"))
+task_gate = TaskGate()
 memory = {}
 memory_lock = threading.Lock()
 content_history_cache = []
@@ -935,7 +939,7 @@ def run_analytics(chat_id):
     ask_ai(chat_id, prompt)
 
 
-def ask_ai(chat_id, user_text, status_message_id=None):
+def _ask_ai_impl(chat_id, user_text, status_message_id=None):
     def progress(message):
         edit_status(chat_id, status_message_id, message)
 
@@ -1308,13 +1312,35 @@ def ask_ai(chat_id, user_text, status_message_id=None):
         log.exception("AI request failed")
         send_text(chat_id, "Не получилось получить ответ от ИИ. Проверь настройки API и попробуй ещё раз. Подробности ошибки сохранены в журнале сервиса.")
 
+def ask_ai(chat_id, user_text, status_message_id=None):
+    if not task_gate.try_enter(chat_id):
+        send_text(chat_id, "⏳ Уже обрабатываю предыдущий запрос. Дождись ответа, затем отправь следующий.")
+        return
+    try:
+        _ask_ai_impl(chat_id, user_text, status_message_id)
+    finally:
+        task_gate.leave(chat_id)
+
+
 def allowed(user_id):
     # Fail closed: an unset owner ID must never grant access.
     return bool(OWNER_ID and user_id is not None and hmac.compare_digest(str(user_id), OWNER_ID))
 
 
+def is_private_update(update):
+    if "callback_query" in update:
+        message = (update.get("callback_query") or {}).get("message") or {}
+    else:
+        message = update.get("message") or update.get("edited_message") or {}
+    chat = message.get("chat") or {}
+    return chat.get("type") == "private"
+
+
 def process_update(update):
     try:
+        # RAMZES AI is a private owner tool. Never reveal owner IDs or AI output in groups/channels.
+        if not is_private_update(update):
+            return
         if "callback_query" in update:
             query = update["callback_query"]
             user_id = query.get("from", {}).get("id")
@@ -1467,6 +1493,8 @@ def health():
         "service": "RAMZES AI",
         "mode": "persistent" if persistent else "temporary",
         "persistent_storage_configured": persistent,
+        "queue_pending": dispatcher.pending_count,
+        "queue_limit": dispatcher.max_pending,
     })
 
 
@@ -1480,8 +1508,14 @@ def telegram_webhook():
     if not hmac.compare_digest(supplied, WEBHOOK_SECRET):
         return jsonify({"ok": False}), 403
     update = request.get_json(silent=True) or {}
-    pool.submit(process_update, update)
-    return jsonify({"ok": True})
+    try:
+        dispatch_status = dispatcher.submit(pool, process_update, update)
+    except Exception:
+        log.exception("Could not queue Telegram update")
+        return jsonify({"ok": False, "error": "queue_unavailable"}), 503
+    if dispatch_status == "full":
+        return jsonify({"ok": False, "error": "queue_full"}), 503
+    return jsonify({"ok": True, "duplicate": dispatch_status == "duplicate"})
 
 
 def configure_webhook():
