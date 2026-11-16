@@ -16,7 +16,7 @@ class AgentPipelineTests(unittest.TestCase):
             return f"Результат {role}"
 
         result = run_content_team(fake_model, "Сделай пост", "Профиль RAMZES")
-        self.assertIn("Бриф", result["strategy_brief"])
+        self.assertIn("СТРАТЕГ", result["strategy_brief"])
         self.assertIn("копирайтер", result["draft"].lower())
         self.assertIn("audience", result["agent_notes"])
         self.assertIn("visual", result["agent_notes"])
