@@ -11,9 +11,9 @@ log = logging.getLogger("ramzes-content-engine.storage")
 
 SUPABASE_URL = __import__("os").getenv("SUPABASE_URL", "").strip().rstrip("/")
 STORAGE_ENABLED = __import__("os").getenv("RAMZES_STORAGE_ENABLED", "false").strip().lower() in ("1", "true", "yes")
-SUPABASE_KEY = __import__("os").getenv("SUPABASE_PUBLISHABLE_KEY", "").strip()
-SUPABASE_AUTH_KEY = __import__("os").getenv("SUPABASE_AUTH_KEY", "").strip() or SUPABASE_KEY
-ENGINE_SECRET = __import__("os").getenv("RAMZES_ENGINE_STORAGE_SECRET", "").strip()
+# This module runs only on the trusted bot server. Prefer the server-side
+# service-role key; never place it in a client app or commit it to Git.
+SUPABASE_SERVICE_KEY = __import__("os").getenv("SUPABASE_SERVICE_ROLE_KEY", "").strip()
 REST_URL = f"{SUPABASE_URL}/rest/v1" if SUPABASE_URL else ""
 
 DEFAULT_BRAND_PROFILE = {
@@ -52,7 +52,7 @@ DEFAULT_BRAND_PROFILE = {
 
 
 def enabled():
-    return bool(STORAGE_ENABLED and REST_URL and SUPABASE_KEY and ENGINE_SECRET)
+    return bool(STORAGE_ENABLED and REST_URL and SUPABASE_SERVICE_KEY)
 
 
 def healthcheck():
@@ -66,10 +66,9 @@ def healthcheck():
 
 def _headers(prefer=None):
     headers = {
-        "apikey": SUPABASE_KEY,
-        "Authorization": f"Bearer {SUPABASE_AUTH_KEY}",
+        "apikey": SUPABASE_SERVICE_KEY,
+        "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
         "Content-Type": "application/json",
-        "x-ramzes-engine-key": ENGINE_SECRET,
     }
     if prefer:
         headers["Prefer"] = prefer
@@ -94,8 +93,8 @@ def _request(method, table, params=None, payload=None, prefer=None):
         return response.json()
     except requests.HTTPError as exc:
         status = exc.response.status_code if exc.response is not None else "unknown"
-        body = exc.response.text[:400] if exc.response is not None else ""
-        log.warning("Persistent storage request failed for %s (HTTP %s): %s", table, status, body)
+        # Avoid logging response bodies: database errors can contain row values.
+        log.warning("Persistent storage request failed for %s (HTTP %s)", table, status)
         return None
     except Exception as exc:
         log.warning("Persistent storage request failed for %s (%s)", table, type(exc).__name__)

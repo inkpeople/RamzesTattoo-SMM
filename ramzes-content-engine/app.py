@@ -4,6 +4,7 @@ import re
 import logging
 import threading
 import base64
+import hmac
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from concurrent.futures import ThreadPoolExecutor
@@ -1114,7 +1115,7 @@ def ask_ai(chat_id, user_text, status_message_id=None):
             "Если пользователь запросил несколько публикаций, отклоняй только очевидное повторение одной и той же мысли, "
             "а не общую тематику бренда. В issues укажи конкретный фрагмент и проверяемую причину. "
             "Если существенных ошибок нет, pass=true и issues=[] . Верни только JSON "
-            '{"pass": true, "issues": []} или {"pass": false, "issues": ["точный фрагмент и существенная проблема"]}.\\n\\n'
+            '{"pass": true, "issues": []} или {"pass": false, "issues": ["точный фрагмент и существенная проблема"]}.\n\n'
             "ПРОФИЛЬ БРЕНДА:\n" + brand_context +
             "\n\nНЕДАВНИЙ КОНТЕНТ — НЕ ПОВТОРЯТЬ:\n" + recent_content_context +
             "\n\nИСХОДНЫЙ ЗАПРОС:\n" + original_request +
@@ -1305,10 +1306,11 @@ def ask_ai(chat_id, user_text, status_message_id=None):
     except Exception as exc:
         progress("⚠️ Не удалось завершить этап. Сейчас отправлю описание ошибки.")
         log.exception("AI request failed")
-        send_text(chat_id, f"Не получилось получить ответ от ИИ. Проверь API-ключ, баланс OpenRouter и модель.\nТехническая ошибка: {str(exc)[:350]}")
+        send_text(chat_id, "Не получилось получить ответ от ИИ. Проверь настройки API и попробуй ещё раз. Подробности ошибки сохранены в журнале сервиса.")
 
 def allowed(user_id):
-    return not OWNER_ID or str(user_id) == OWNER_ID
+    # Fail closed: an unset owner ID must never grant access.
+    return bool(OWNER_ID and user_id is not None and hmac.compare_digest(str(user_id), OWNER_ID))
 
 
 def process_update(update):
@@ -1357,8 +1359,14 @@ def process_update(update):
         user_id = message.get("from", {}).get("id")
         text = (message.get("text") or "").strip()
 
+        # One-time bootstrap: when OWNER_ID is unset, only /start may reveal
+        # the sender's Telegram ID. No bot features or AI calls are available.
+        if text.startswith("/start") and not OWNER_ID:
+            send_text(chat_id, f"Твой Telegram ID: {user_id}\n\nДобавь это число в TELEGRAM_OWNER_ID в настройках хостинга, затем перезапусти сервис и отправь /start ещё раз.")
+            return
+
         if not allowed(user_id):
-            send_text(chat_id, "Этот бот закрыт для личного использования.")
+            send_text(chat_id, "Этот бот закрыт для личного использования." if OWNER_ID else "Доступ временно закрыт. Сначала настрой TELEGRAM_OWNER_ID на хостинге.")
             return
 
         if message.get("photo"):
@@ -1377,14 +1385,9 @@ def process_update(update):
 
         if not text:
             return
-            send_text(chat_id, "Этот бот закрыт для личного использования.")
-            return
 
         if text.startswith("/start"):
-            if not OWNER_ID:
-                send_text(chat_id, f"Твой Telegram ID: {user_id}\n\nДобавь это число в переменную TELEGRAM_OWNER_ID на хостинге, затем перезапусти сервис и отправь /start ещё раз.")
-            else:
-                send_menu(chat_id)
+            send_menu(chat_id)
             return
         if text.startswith("/menu"):
             send_menu(chat_id)
@@ -1424,10 +1427,6 @@ def process_update(update):
                 note = "постоянный профиль" if storage_enabled() else "временный профиль текущей сессии"
                 send_text(chat_id, f"✅ Сохранил в {note} RAMZES как подтверждённый факт." if ok else "Не удалось сохранить факт.")
             return
-        if not OWNER_ID:
-            send_text(chat_id, "Сначала настрой доступ владельца: отправь /start и добавь свой Telegram ID в TELEGRAM_OWNER_ID на хостинге.")
-            return
-
         labels = {label: key for row in MENU for label, key in row}
         if text in labels:
             action = labels[text]
@@ -1462,20 +1461,24 @@ def process_update(update):
 
 @app.get("/")
 def health():
+    persistent = healthcheck()
     return jsonify({
         "ok": True,
-        "service": "RAMZES CONTENT ENGINE",
-        "mode": "temporary",
-        "persistent_storage_configured": healthcheck(),
+        "service": "RAMZES AI",
+        "mode": "persistent" if persistent else "temporary",
+        "persistent_storage_configured": persistent,
     })
 
 
 @app.post("/telegram")
 def telegram_webhook():
-    if WEBHOOK_SECRET:
-        supplied = request.headers.get("X-Telegram-Bot-Api-Secret-Token", "")
-        if supplied != WEBHOOK_SECRET:
-            return jsonify({"ok": False}), 403
+    # Telegram webhook must always be authenticated; never accept an open endpoint.
+    if not WEBHOOK_SECRET:
+        log.error("Webhook request rejected: TELEGRAM_WEBHOOK_SECRET is not configured.")
+        return jsonify({"ok": False, "error": "webhook_not_configured"}), 503
+    supplied = request.headers.get("X-Telegram-Bot-Api-Secret-Token", "")
+    if not hmac.compare_digest(supplied, WEBHOOK_SECRET):
+        return jsonify({"ok": False}), 403
     update = request.get_json(silent=True) or {}
     pool.submit(process_update, update)
     return jsonify({"ok": True})
