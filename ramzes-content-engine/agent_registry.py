@@ -144,6 +144,28 @@ def plan_task(request, full_team=True, max_llm_agents=16):
     else:
         selected += ["strategist", "copywriter"]
 
+    # Cross-cutting specialist triggers also work when the request is not a
+    # classic content/research/sales task (e.g. "разбери портфолио").
+    extra_triggers = {
+        "portfolio_archivist": ("портфолио", "разбери фотографии", "категоризируй работы"),
+        "headline_tester": ("заголовок", "заголовки", "варианты заголов"),
+        "anti_repeat": ("не повторяй", "повторы", "новые темы", "архив контента"),
+        "publication_control": ("проверь публикацию", "перед публикацией", "проверка поста"),
+        "data_auditor": ("аудит данных", "проверь данные", "достоверность цифр"),
+        "reputation": ("отзывы", "репутация", "обратная связь"),
+        "referrals": ("реферальная", "реферал", "приведи друга"),
+        "client_return": ("вернуть клиента", "повторная запись", "повторный сеанс"),
+        "audience_segments": ("сегмент аудитории", "сегменты клиентов", "группы клиентов"),
+        "campaigns": ("маркетинговая кампания", "план кампании", "кампании"),
+        "experiment_planner": ("гипотеза", "эксперимент", "a/b", "тест гипотез"),
+        "objection_analyst": ("возражения", "дорого", "сомнения клиента"),
+        "reply_assistant": ("ответ клиенту", "что ответить клиенту", "сообщение клиенту"),
+        "lead_finder": ("найди потенциальных клиентов", "ищут тату-мастера"),
+    }
+    for agent_id, markers in extra_triggers.items():
+        if _has(text, markers):
+            selected.append(agent_id)
+
     # Always unique and capped; deterministic tools do not consume LLM budget.
     unique = []
     for agent_id in selected:
