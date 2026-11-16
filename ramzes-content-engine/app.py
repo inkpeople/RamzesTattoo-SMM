@@ -1461,11 +1461,12 @@ def process_update(update):
 
 @app.get("/")
 def health():
+    persistent = healthcheck()
     return jsonify({
         "ok": True,
-        "service": "RAMZES CONTENT ENGINE",
-        "mode": "temporary",
-        "persistent_storage_configured": healthcheck(),
+        "service": "RAMZES AI",
+        "mode": "persistent" if persistent else "temporary",
+        "persistent_storage_configured": persistent,
     })
 
 
