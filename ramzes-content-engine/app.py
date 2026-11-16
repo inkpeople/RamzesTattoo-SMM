@@ -12,6 +12,8 @@ from concurrent.futures import ThreadPoolExecutor
 import requests
 from flask import Flask, request, jsonify
 
+from runtime_guard import UpdateDispatcher
+
 from storage import (
     load_chat_history, save_chat_history, clear_chat_history,
     load_brand_profile, add_brand_fact, build_brand_context,
@@ -25,6 +27,7 @@ log = logging.getLogger("ramzes-content-engine")
 
 app = Flask(__name__)
 pool = ThreadPoolExecutor(max_workers=4)
+dispatcher = UpdateDispatcher(max_pending=os.getenv("MAX_PENDING_UPDATES", "24"))
 memory = {}
 memory_lock = threading.Lock()
 content_history_cache = []
@@ -1467,6 +1470,8 @@ def health():
         "service": "RAMZES AI",
         "mode": "persistent" if persistent else "temporary",
         "persistent_storage_configured": persistent,
+        "queue_pending": dispatcher.pending_count,
+        "queue_limit": dispatcher.max_pending,
     })
 
 
@@ -1480,8 +1485,14 @@ def telegram_webhook():
     if not hmac.compare_digest(supplied, WEBHOOK_SECRET):
         return jsonify({"ok": False}), 403
     update = request.get_json(silent=True) or {}
-    pool.submit(process_update, update)
-    return jsonify({"ok": True})
+    try:
+        dispatch_status = dispatcher.submit(pool, process_update, update)
+    except Exception:
+        log.exception("Could not queue Telegram update")
+        return jsonify({"ok": False, "error": "queue_unavailable"}), 503
+    if dispatch_status == "full":
+        return jsonify({"ok": False, "error": "queue_full"}), 503
+    return jsonify({"ok": True, "duplicate": dispatch_status == "duplicate"})
 
 
 def configure_webhook():
