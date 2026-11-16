@@ -1327,8 +1327,20 @@ def allowed(user_id):
     return bool(OWNER_ID and user_id is not None and hmac.compare_digest(str(user_id), OWNER_ID))
 
 
+def is_private_update(update):
+    if "callback_query" in update:
+        message = (update.get("callback_query") or {}).get("message") or {}
+    else:
+        message = update.get("message") or update.get("edited_message") or {}
+    chat = message.get("chat") or {}
+    return chat.get("type") == "private"
+
+
 def process_update(update):
     try:
+        # RAMZES AI is a private owner tool. Never reveal owner IDs or AI output in groups/channels.
+        if not is_private_update(update):
+            return
         if "callback_query" in update:
             query = update["callback_query"]
             user_id = query.get("from", {}).get("id")
