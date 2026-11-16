@@ -528,7 +528,7 @@ def save_publication(telegram_user_id, platform, topic, hook="", url="", content
     uid = _uid(telegram_user_id)
     if uid is None or not str(topic or "").strip():
         return None
-    normalized = re.sub(r"\s+", " ", f"{platform}|{topic}|{hook}|{url}").lower().strip()
+    normalized = re.sub(r"\s+", " ", f"{platform}|{topic}|{hook}|{url}|{published_at or ''}").lower().strip()
     digest = hashlib.sha256(normalized.encode("utf-8")).hexdigest()
     payload = {
         "telegram_user_id": uid,
@@ -625,10 +625,13 @@ def save_agent_run(telegram_user_id, task_type, agent_ids, outputs, status="comp
     uid = _uid(telegram_user_id)
     if uid is None:
         return False
-    # Store compact, bounded outputs; never store raw customer messages or credentials.
+    # Store execution metadata only. Model outputs can echo customer data from context.
     safe_outputs = {}
     for key, value in (outputs or {}).items():
-        safe_outputs[str(key)[:80]] = str(value)[:5000]
+        safe_outputs[str(key)[:80]] = {
+            "present": bool(str(value).strip()),
+            "characters": min(len(str(value)), 100000),
+        }
     result = _request(
         "POST", "ramzes_content_engine_agent_runs",
         payload={
