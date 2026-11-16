@@ -1322,7 +1322,8 @@ def process_update(update):
             if requested or caption.startswith("/analyze") or caption.startswith("анализ"):
                 photo = message["photo"][-1]
                 status_id = send_text(chat_id, "⏳ Получил фото. Запускаю визуальный разбор татуировки.")
-                analyze_tattoo_photo(chat_id, photo.get("file_id"), status_id, caption.replace(/^\/?analyze\b\s*[:,—-]?\s*/i, "").replace(/^анализ\b\s*[:,—-]?\s*/i, "").trim())
+                user_context = re.sub(r"^(?:/?analyze|анализ)\b\s*[:,—-]?\s*", "", caption, flags=re.IGNORECASE).strip()
+                analyze_tattoo_photo(chat_id, photo.get("file_id"), status_id, user_context)
             else:
                 send_text(chat_id, "Чтобы разобрать татуировку, нажми «📸 Анализ татуировки» в меню и отправь фото. Можно также добавить к фото подпись «анализ».")
             return
