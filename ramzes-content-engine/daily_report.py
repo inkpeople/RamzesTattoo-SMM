@@ -48,11 +48,16 @@ def main():
     since = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
     metrics = _get("ramzes_content_engine_metrics",
                    "platform,publication_id,views,likes,comments,reposts,saves,profile_visits,followers_gained,inbound_messages,bookings,ad_spend,captured_at", since, date_column="captured_at")
-    leads = _get("ramzes_content_engine_leads", "id,stage,created_at,lead_data", since)
-    bookings = _get("ramzes_content_engine_bookings", "id,lead_id,status,amount,created_at,session_date", since)
+    daily_leads = _get("ramzes_content_engine_leads", "id,stage,created_at,lead_data", since)
+    leads = _get("ramzes_content_engine_leads", "id,stage,created_at,lead_data", None)
+    daily_bookings = _get("ramzes_content_engine_bookings", "id,lead_id,status,amount,created_at,session_date", since)
+    bookings = _get("ramzes_content_engine_bookings", "id,lead_id,status,amount,created_at,session_date", None)
     market = _get("ramzes_content_engine_market_sources", "id,created_at", since)
     publications = _get("ramzes_content_engine_publications", "id,platform,topic,hook,url,published_at", None)
-    send_report(render_daily_report(metrics, leads, bookings, len(market), publications))
+    send_report(render_daily_report(
+        metrics, leads, bookings, len(market), publications,
+        daily_leads=daily_leads, daily_bookings=daily_bookings
+    ))
 
 
 if __name__ == "__main__":
