@@ -1115,7 +1115,7 @@ def ask_ai(chat_id, user_text, status_message_id=None):
             "Если пользователь запросил несколько публикаций, отклоняй только очевидное повторение одной и той же мысли, "
             "а не общую тематику бренда. В issues укажи конкретный фрагмент и проверяемую причину. "
             "Если существенных ошибок нет, pass=true и issues=[] . Верни только JSON "
-            '{"pass": true, "issues": []} или {"pass": false, "issues": ["точный фрагмент и существенная проблема"]}.\\n\\n'
+            '{"pass": true, "issues": []} или {"pass": false, "issues": ["точный фрагмент и существенная проблема"]}.\n\n'
             "ПРОФИЛЬ БРЕНДА:\n" + brand_context +
             "\n\nНЕДАВНИЙ КОНТЕНТ — НЕ ПОВТОРЯТЬ:\n" + recent_content_context +
             "\n\nИСХОДНЫЙ ЗАПРОС:\n" + original_request +
@@ -1306,7 +1306,7 @@ def ask_ai(chat_id, user_text, status_message_id=None):
     except Exception as exc:
         progress("⚠️ Не удалось завершить этап. Сейчас отправлю описание ошибки.")
         log.exception("AI request failed")
-        send_text(chat_id, f"Не получилось получить ответ от ИИ. Проверь API-ключ, баланс OpenRouter и модель.\nТехническая ошибка: {str(exc)[:350]}")
+        send_text(chat_id, "Не получилось получить ответ от ИИ. Проверь настройки API и попробуй ещё раз. Подробности ошибки сохранены в журнале сервиса.")
 
 def allowed(user_id):
     # Fail closed: an unset owner ID must never grant access.
@@ -1362,7 +1362,7 @@ def process_update(update):
         # One-time bootstrap: when OWNER_ID is unset, only /start may reveal
         # the sender's Telegram ID. No bot features or AI calls are available.
         if text.startswith("/start") and not OWNER_ID:
-            send_text(chat_id, f"Твой Telegram ID: {user_id}\\n\\nДобавь это число в TELEGRAM_OWNER_ID в настройках хостинга, затем перезапусти сервис и отправь /start ещё раз.")
+            send_text(chat_id, f"Твой Telegram ID: {user_id}\n\nДобавь это число в TELEGRAM_OWNER_ID в настройках хостинга, затем перезапусти сервис и отправь /start ещё раз.")
             return
 
         if not allowed(user_id):
@@ -1384,8 +1384,6 @@ def process_update(update):
             return
 
         if not text:
-            return
-            send_text(chat_id, "Этот бот закрыт для личного использования.")
             return
 
         if text.startswith("/start"):
