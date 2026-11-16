@@ -702,6 +702,6 @@ def update_lead_stage(telegram_user_id, lead_id, stage):
         "PATCH", "ramzes_content_engine_leads",
         params={"id": f"eq.{record_id}", "telegram_user_id": f"eq.{uid}"},
         payload={"stage": stage},
-        prefer="return=minimal",
+        prefer="return=representation",
     )
-    return result is not None
+    return isinstance(result, list) and bool(result)
