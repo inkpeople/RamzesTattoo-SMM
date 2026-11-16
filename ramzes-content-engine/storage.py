@@ -524,7 +524,7 @@ def save_publication(telegram_user_id, platform, topic, hook="", url="", content
     uid = _uid(telegram_user_id)
     if uid is None or not str(topic or "").strip():
         return None
-    normalized = re.sub(r"\\s+", " ", f"{platform}|{topic}|{hook}|{url}").lower().strip()
+    normalized = re.sub(r"\s+", " ", f"{platform}|{topic}|{hook}|{url}").lower().strip()
     digest = hashlib.sha256(normalized.encode("utf-8")).hexdigest()
     payload = {
         "telegram_user_id": uid,
@@ -615,8 +615,7 @@ def build_memory_events_context(items):
         content = str(item.get("content") or "").strip()
         if content:
             lines.append(f"- [{labels.get(item.get('memory_type'), 'Память')}] {content[:500]}")
-    return "\\n\\nДОЛГОСРОЧНАЯ ПАМЯТЬ RAMZES AI (подтверждённые записи):\\n" + "\\n".join(lines) if lines else ""
-
+    return "\n\nДОЛГОСРОЧНАЯ ПАМЯТЬ RAMZES AI (подтверждённые записи):\n" + "\n".join(lines) if lines else ""
 
 def save_agent_run(telegram_user_id, task_type, agent_ids, outputs, status="completed"):
     uid = _uid(telegram_user_id)
