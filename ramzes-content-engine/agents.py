@@ -6,6 +6,10 @@ as untrusted data rather than instructions.
 """
 
 from agent_registry import plan_task, AGENT_BY_ID
+from agent_tools import (
+    score_lead, calculate_offer_economics, find_repeated_topics,
+    audit_metrics, check_publication, analyze_booking_funnel,
+)
 
 
 BASE_RULES = (
@@ -246,6 +250,72 @@ def specialist_agent(model_call, agent_id, task, context=""):
         + "\\n\\nЗАДАЧА:\\n" + str(task),
         context, 0.25, spec.max_tokens
     )
+
+
+def run_specialist_team(model_call, request, context="", task_context=None,
+                        payload=None, full_team=True):
+    """Execute the selected non-content specialists and return auditable outputs."""
+    payload = payload if isinstance(payload, dict) else {}
+    plan = plan_task(request, full_team=full_team)
+    result = {"task_plan": plan, "agent_outputs": {}, "skipped_agents": []}
+    research = None
+
+    deterministic = {
+        "lead_scorer": lambda: score_lead(payload.get("lead", {})),
+        "booking_funnel": lambda: analyze_booking_funnel(payload.get("events", [])),
+        "offer_economics": lambda: calculate_offer_economics(
+            payload["price"], payload.get("discount_rub", 0), payload.get("direct_cost", 0)
+        ),
+        "anti_repeat": lambda: find_repeated_topics(
+            payload.get("new_topics", []), payload.get("recent_topics", [])
+        ),
+        "publication_control": lambda: check_publication(
+            payload.get("text", ""), payload.get("platform")
+        ),
+        "data_auditor": lambda: audit_metrics(payload.get("metrics", [])),
+    }
+
+    for agent_id in plan["agents"]:
+        if agent_id == "orchestrator":
+            continue
+        spec = AGENT_BY_ID[agent_id]
+        if not spec.requires_llm:
+            required = {
+                "lead_scorer": "lead",
+                "booking_funnel": "events",
+                "offer_economics": "price",
+                "anti_repeat": "new_topics",
+                "publication_control": "text",
+                "data_auditor": "metrics",
+            }.get(agent_id)
+            if required is None or required not in payload:
+                result["skipped_agents"].append({
+                    "agent_id": agent_id, "reason": "Не переданы необходимые данные: " + str(required)
+                })
+                continue
+            result["agent_outputs"][agent_id] = deterministic[agent_id]()
+            continue
+
+        if agent_id == "market_researcher":
+            research = research_agent(
+                model_call, task_context if task_context is not None else request,
+                context=context, web_search=True
+            )
+            result["agent_outputs"][agent_id] = research
+        else:
+            agent_context = context
+            if research:
+                agent_context += "\n\nРЕЗУЛЬТАТ ИССЛЕДОВАНИЯ:\n" + str(research)
+            result["agent_outputs"][agent_id] = specialist_agent(
+                model_call, agent_id, task_context if task_context is not None else request,
+                context=agent_context
+            )
+
+    result["summary"] = "\n\n".join(
+        AGENT_BY_ID[agent_id].name + ":\n" + str(output)
+        for agent_id, output in result["agent_outputs"].items()
+    )
+    return result
 
 
 def run_content_team(model_call, request, context="", max_tokens=5000,
