@@ -16,7 +16,6 @@ STORAGE_ENABLED = __import__("os").getenv("RAMZES_STORAGE_ENABLED", "false").str
 SUPABASE_SERVICE_KEY = __import__("os").getenv("SUPABASE_SERVICE_ROLE_KEY", "").strip()
 SUPABASE_KEY = SUPABASE_SERVICE_KEY
 SUPABASE_AUTH_KEY = SUPABASE_SERVICE_KEY
-ENGINE_SECRET = __import__("os").getenv("RAMZES_ENGINE_STORAGE_SECRET", "").strip()
 REST_URL = f"{SUPABASE_URL}/rest/v1" if SUPABASE_URL else ""
 
 DEFAULT_BRAND_PROFILE = {
@@ -55,7 +54,7 @@ DEFAULT_BRAND_PROFILE = {
 
 
 def enabled():
-    return bool(STORAGE_ENABLED and REST_URL and SUPABASE_SERVICE_KEY and ENGINE_SECRET)
+    return bool(STORAGE_ENABLED and REST_URL and SUPABASE_SERVICE_KEY)
 
 
 def healthcheck():
@@ -72,7 +71,6 @@ def _headers(prefer=None):
         "apikey": SUPABASE_KEY,
         "Authorization": f"Bearer {SUPABASE_AUTH_KEY}",
         "Content-Type": "application/json",
-        "x-ramzes-engine-key": ENGINE_SECRET,
     }
     if prefer:
         headers["Prefer"] = prefer
