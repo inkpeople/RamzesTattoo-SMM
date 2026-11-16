@@ -1227,7 +1227,8 @@ def _ask_ai_impl(chat_id, user_text, status_message_id=None):
             request_ai,
             generation_instruction,
             context=team_context,
-            max_tokens=7000 if is_factory else 3500
+            max_tokens=7000 if is_factory else 3500,
+            full_team=is_content_request
         )
         draft = team_result["draft"]
 
