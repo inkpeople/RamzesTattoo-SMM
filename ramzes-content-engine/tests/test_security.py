@@ -1,4 +1,5 @@
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 import app as app_module
@@ -82,6 +83,31 @@ class StorageSecurityTests(unittest.TestCase):
         self.assertEqual(headers["apikey"], "server-only-key")
         self.assertEqual(headers["Authorization"], "Bearer server-only-key")
         self.assertNotIn("x-ramzes-engine-key", headers)
+
+
+class HealthEndpointTests(unittest.TestCase):
+    def test_health_reports_persistent_mode_only_after_database_check(self):
+        with patch.object(app_module, "healthcheck", return_value=True):
+            response = app_module.app.test_client().get("/")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_json()["mode"], "persistent")
+        self.assertTrue(response.get_json()["persistent_storage_configured"])
+
+    def test_health_reports_temporary_mode_when_database_unavailable(self):
+        with patch.object(app_module, "healthcheck", return_value=False):
+            response = app_module.app.test_client().get("/")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_json()["mode"], "temporary")
+        self.assertFalse(response.get_json()["persistent_storage_configured"])
+
+
+class MigrationAccessTests(unittest.TestCase):
+    def test_migration_grants_data_api_access_only_to_service_role(self):
+        migration = Path("supabase/migrations/202611160001_initial_ramzes_content_engine.sql").read_text()
+        self.assertIn("to service_role", migration.lower())
+        self.assertIn("from anon, authenticated", migration.lower())
+        self.assertIn("enable row level security", migration.lower())
+        self.assertIn("ramzes_content_engine_content_library_id_seq", migration)
 
 
 if __name__ == "__main__":
