@@ -236,14 +236,21 @@ def run_content_team(model_call, request, context="", max_tokens=5000,
     if full_team:
         conversion = conversion_agent(model_call, request, draft, context)
         seo = seo_agent(model_call, request, draft, context)
-        result["agent_notes"].update({"conversion": conversion, "seo": seo})
-        # Attach concise specialist guidance for the existing editor to resolve.
+        facts = factcheck_agent(model_call, request, draft, context)
+        brand = brand_guardian_agent(model_call, request, draft, context)
+        result["agent_notes"].update({
+            "conversion": conversion, "seo": seo,
+            "factcheck": facts, "brand_guardian": brand,
+        })
+        # Internal notes are passed to the existing editor/QA, never intended as post copy.
         draft += (
-            "\n\nВНУТРЕННИЕ ЗАМЕЧАНИЯ КОМАНДЫ (не публиковать как отдельный текст):\n"
+            "\n\nВНУТРЕННИЕ ЗАМЕЧАНИЯ КОМАНДЫ (НЕ ПУБЛИКОВАТЬ):\n"
             "Позиционирование: " + positioning
             + "\nВизуальное ТЗ: " + visual
             + "\nКонверсия: " + conversion
             + "\nЛокальный поиск: " + seo
+            + "\nФактчек: " + facts
+            + "\nПроверка бренда: " + brand
         )
 
     result["draft"] = draft
