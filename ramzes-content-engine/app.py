@@ -861,7 +861,7 @@ def current_metrics(chat_id, limit=50):
     with memory_lock:
         temporary = list(metrics_cache)
     items = persistent + temporary
-    items.sort(key=lambda item: str(item.get("created_at") or ""))
+    items.sort(key=lambda item: str(item.get("captured_at") or item.get("created_at") or ""))
     return items[-limit:]
 
 
@@ -955,7 +955,7 @@ def current_bookings(chat_id, limit=200):
     with memory_lock:
         temporary = list(bookings_cache)
     items = persistent + temporary
-    items.sort(key=lambda item: str(item.get("published_at") or item.get("created_at") or ""))
+    items.sort(key=lambda item: str(item.get("created_at") or ""))
     return items[-limit:]
 
 
@@ -963,7 +963,9 @@ def current_publications(chat_id, limit=100):
     persistent = load_recent_publications(OWNER_ID or chat_id, limit) if storage_enabled() else []
     with memory_lock:
         temporary = list(publications_cache)
-    return (persistent + temporary)[-limit:]
+    items = persistent + temporary
+    items.sort(key=lambda item: str(item.get("published_at") or item.get("created_at") or ""))
+    return items[-limit:]
 
 
 def send_business_data_help(chat_id, kind):
