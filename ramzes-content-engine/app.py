@@ -13,7 +13,7 @@ import requests
 from flask import Flask, request, jsonify
 
 from runtime_guard import TaskGate, UpdateDispatcher
-from agents import run_content_team, research_agent
+from agents import run_content_team, research_agent, run_specialist_team
 
 from storage import (
     load_chat_history, save_chat_history, clear_chat_history,
@@ -1177,12 +1177,17 @@ def _ask_ai_impl(chat_id, user_text, status_message_id=None):
                 "Не называй RAMZES лучшим без объективного основания. Не придумывай цены, свободные окна, отзывы, результаты, охваты или личные процессы. "
                 "Формат: краткое резюме; рынок и метод/ограничения; таблица конкурентов с источниками; карта позиционирования; свободные темы; офферы; контент-план; готовые хуки; что нужно проверить у владельца."
             )
-            answer = research_agent(
+            research_team = run_specialist_team(
                 request_ai,
-                market_prompt + "\n\nЗапрос владельца: " + market_request,
+                market_request,
                 context=SYSTEM_PROMPT + seasonal_context + brand_context,
-                web_search=True
+                task_context=market_prompt + "\n\nЗапрос владельца: " + market_request,
+                full_team=True
             )
+            log.info("RAMZES AI research routing agents=%s llm_calls=%s",
+                     research_team.get("task_plan", {}).get("agents"),
+                     research_team.get("task_plan", {}).get("llm_agent_count"))
+            answer = research_team.get("summary") or "Не удалось собрать исследовательский отчёт."
             remember(chat_id, "user", user_text)
             remember(chat_id, "assistant", answer)
             send_text(chat_id, answer)
