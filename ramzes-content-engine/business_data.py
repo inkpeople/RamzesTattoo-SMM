@@ -78,3 +78,29 @@ def parse_booking(raw):
         "source_platform": str(fields.get("source_platform", "unknown")).lower()[:40],
         "lead_id": lead_id,
     }
+
+
+
+def parse_publication(raw):
+    fields = parse_fields(raw)
+    platform = str(fields.get("source_platform") or fields.get("platform") or "unknown").lower()[:40]
+    topic = str(fields.get("topic") or fields.get("тема") or "").strip()
+    hook = str(fields.get("hook") or "").strip()
+    url = str(fields.get("url") or "").strip()
+    published_at = fields.get("published_at") or fields.get("date")
+    if not topic:
+        raise ValueError("Укажи тему публикации: topic=...")
+    if url and not url.startswith(("https://", "http://")):
+        raise ValueError("Ссылка должна начинаться с https:// или http://")
+    if published_at:
+        try:
+            date.fromisoformat(published_at[:10])
+        except ValueError as exc:
+            raise ValueError("Дата публикации должна быть YYYY-MM-DD.") from exc
+    return {
+        "platform": platform,
+        "topic": topic[:1000],
+        "hook": hook[:500],
+        "url": url[:2000],
+        "published_at": published_at,
+    }
