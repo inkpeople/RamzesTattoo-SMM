@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - ramzes-ai-orchestrator-implementation
-  pull_request:
   schedule:
     # 06:00 Novosibirsk (UTC+7)
     - cron: "0 23 * * *"
@@ -55,6 +54,7 @@ jobs:
             ramzes-market-${{ runner.os }}-
 
       - name: Scan public competitors and trends
+        if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
         shell: bash
         run: |
           if [ -z "$TELEGRAM_BOT_TOKEN" ] || [ -z "$TELEGRAM_OWNER_ID" ]; then
@@ -64,13 +64,14 @@ jobs:
           python market_monitor_worker.py --once
 
       - name: Save market-monitor cache
-        if: always()
+        if: ${{ always() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') }}
         uses: actions/cache/save@v4
         with:
           path: ${{ runner.temp }}/ramzes_market_intel.sqlite3
           key: ramzes-market-${{ runner.os }}-${{ github.run_id }}
 
       - name: Send daily performance and booking report
+        if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
         shell: bash
         run: |
           if [ -z "$TELEGRAM_BOT_TOKEN" ] || [ -z "$TELEGRAM_OWNER_ID" ] || [ -z "$SUPABASE_URL" ] || [ -z "$SUPABASE_SERVICE_ROLE_KEY" ]; then
