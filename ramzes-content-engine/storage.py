@@ -415,9 +415,11 @@ def parse_metric_message(text):
     metrics = {key: value for key, value in metrics.items() if value is not None}
     if not metrics:
         return None
+    publication_match = re.search(r"(?:publication|публикация)\s*#?\s*(\d+)", raw, flags=re.IGNORECASE)
     return {
         "platform": platform,
         "metrics": metrics,
+        "publication_id": int(publication_match.group(1)) if publication_match else None,
         "raw_metrics": {"source_text": raw},
         "notes": raw[:1000],
     }
@@ -441,6 +443,8 @@ def save_metric(telegram_user_id, parsed):
     for key, value in metrics.items():
         if key in allowed:
             payload[key] = value
+    if parsed.get("publication_id") is not None:
+        payload["publication_id"] = int(parsed["publication_id"])
     result = _request(
         "POST",
         "ramzes_content_engine_metrics",
