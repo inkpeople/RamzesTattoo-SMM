@@ -1512,7 +1512,8 @@ def _ask_ai_impl(chat_id, user_text, status_message_id=None):
             generation_instruction,
             context=team_context,
             max_tokens=7000 if is_factory else 3500,
-            full_team=is_content_request
+            full_team=is_content_request,
+            recent_topics=[item.get("topic", "") for item in recent_content if item.get("topic")]
         )
         log.info("RAMZES AI selected task_type=%s agents=%s llm_calls=%s",
                  team_result.get("task_plan", {}).get("task_type"),
