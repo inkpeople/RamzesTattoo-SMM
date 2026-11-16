@@ -11,7 +11,8 @@ ALIASES = {
     "source": "source_platform", "источник": "source_platform", "platform": "source_platform",
     "направление": "style", "стиль": "style", "зона": "zone",
     "бюджет": "budget", "срок": "deadline", "намерение": "intent",
-    "проект": "project", "дата": "session_date", "сумма": "amount",
+    "проект": "project", "тема": "topic", "хук": "hook", "ссылка": "url",
+    "дата": "session_date", "дата публикации": "published_at", "сумма": "amount",
     "статус": "status", "лид": "lead_id",
 }
 
