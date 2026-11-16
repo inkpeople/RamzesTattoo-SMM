@@ -48,8 +48,8 @@ def main():
     since = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
     metrics = _get("ramzes_content_engine_metrics",
                    "platform,publication_id,views,likes,comments,reposts,saves,profile_visits,followers_gained,inbound_messages,bookings,ad_spend,captured_at", since, date_column="captured_at")
-    leads = _get("ramzes_content_engine_leads", "stage,created_at,lead_data", since)
-    bookings = _get("ramzes_content_engine_bookings", "status,amount,created_at,session_date", since)
+    leads = _get("ramzes_content_engine_leads", "id,stage,created_at,lead_data", since)
+    bookings = _get("ramzes_content_engine_bookings", "id,lead_id,status,amount,created_at,session_date", since)
     market = _get("ramzes_content_engine_market_sources", "id,created_at", since)
     publications = _get("ramzes_content_engine_publications", "id,platform,topic,hook,url,published_at", None)
     send_report(render_daily_report(metrics, leads, bookings, len(market), publications))
