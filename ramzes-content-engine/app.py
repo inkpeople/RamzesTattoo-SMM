@@ -979,8 +979,8 @@ def send_business_data_help(chat_id, kind):
         ),
         "booking": (
             "📅 ДОБАВИТЬ ЗАПИСЬ\n\n"
-            "/booking дата=2026-11-25; сумма=15000; статус=booked; источник=Threads\n\n"
-            "Статусы: booked, completed, cancelled, no_show. Дата — YYYY-MM-DD."
+            "/booking дата=2026-11-25; сумма=15000; статус=booked; источник=Threads; lead_id=12\n\n"
+            "Статусы: booked, completed, cancelled, no_show. Дата — YYYY-MM-DD. lead_id необязателен, но нужен для точной конверсии заявки в запись."
         ),
         "publication": (
             "📝 УЧЕСТЬ ОПУБЛИКОВАННЫЙ ПОСТ\n\n"
