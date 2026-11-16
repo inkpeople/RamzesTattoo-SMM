@@ -981,6 +981,21 @@ def send_business_data_help(chat_id, kind):
     send_text(chat_id, examples[kind])
 
 
+def record_memory_event(chat_id, raw):
+    fields = dict(re.findall(r"([a-zA-Z_]+)\s*=\s*([^;|]+)", str(raw or "")))
+    memory_type = fields.get("type", "").strip().lower()
+    content = fields.get("text", "").strip()
+    allowed = {"brand_fact", "preference", "decision", "campaign", "learning", "workflow"}
+    if memory_type not in allowed or not content:
+        send_text(chat_id, "Формат: /memory type=decision; text=Вывод или принятое решение. Типы: brand_fact, preference, decision, campaign, learning, workflow.")
+        return
+    if not storage_enabled():
+        send_text(chat_id, "Постоянная память пока не подключена. Запись не сохранена.")
+        return
+    ok = save_memory_event(OWNER_ID or chat_id, memory_type, content, source="owner", confirmed=True)
+    send_text(chat_id, "✅ Запись добавлена в долгосрочную память RAMZES AI." if ok else "Не удалось сохранить запись в долгосрочную память.")
+
+
 def record_lead(chat_id, raw):
     try:
         data = parse_lead(raw)
@@ -1705,6 +1720,9 @@ def process_update(update):
         if text.startswith("/market"):
             send_text(chat_id, "🔬 Запускаю исследование рынка и конкурентов Новосибирска. Поиск по открытым источникам может занять до нескольких минут; будут указаны ссылки и ограничения данных.")
             ask_ai(chat_id, ACTIONS["market"])
+            return
+        if text.startswith("/memory"):
+            record_memory_event(chat_id, text[len("/memory"):].strip())
             return
         if text.startswith("/lead"):
             raw = text[len("/lead"):].strip()
