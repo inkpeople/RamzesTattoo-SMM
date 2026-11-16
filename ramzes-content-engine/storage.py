@@ -672,19 +672,19 @@ def save_market_sources(telegram_user_id, sources):
     return saved
 
 
-def load_recent_market_sources(telegram_user_id, limit=100):
+def load_recent_market_sources(telegram_user_id, limit=100, since=None):
     uid = _uid(telegram_user_id)
     if uid is None:
         return []
-    rows = _request(
-        "GET", "ramzes_content_engine_market_sources",
-        params={
-            "select": "created_at,source_url,source_type,title,excerpt,published_at,content_hash",
-            "telegram_user_id": f"eq.{uid}",
-            "order": "created_at.desc",
-            "limit": str(min(max(int(limit), 1), 500)),
-        },
-    )
+    params = {
+        "select": "created_at,source_url,source_type,title,excerpt,published_at,content_hash",
+        "telegram_user_id": f"eq.{uid}",
+        "order": "created_at.desc",
+        "limit": str(min(max(int(limit), 1), 500)),
+    }
+    if since:
+        params["created_at"] = f"gte.{since}"
+    rows = _request("GET", "ramzes_content_engine_market_sources", params=params)
     return rows if isinstance(rows, list) else []
 
 
