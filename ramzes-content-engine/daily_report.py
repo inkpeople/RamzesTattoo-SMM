@@ -15,7 +15,7 @@ def _get(table, select, since, date_column="created_at"):
     response = requests.get(
         f"{BASE}/rest/v1/{table}",
         params={"select": select, "telegram_user_id": f"eq.{OWNER_ID}",
-                date_column: f"gte.{since}", "order": "created_at.desc", "limit": "500"},
+                date_column: f"gte.{since}", "order": f"{date_column}.desc", "limit": "500"},
         headers={"apikey": KEY, "Authorization": f"Bearer {KEY}"},
         timeout=20,
     )
