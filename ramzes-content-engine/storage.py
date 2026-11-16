@@ -358,7 +358,7 @@ def load_recent_metrics(telegram_user_id, limit=30):
         "GET",
         "ramzes_content_engine_metrics",
         params={
-            "select": "platform,captured_at,views,likes,comments,reposts,saves,profile_visits,followers_gained,inbound_messages,bookings,ad_spend,notes,raw_metrics",
+            "select": "platform,captured_at,publication_id,views,likes,comments,reposts,saves,profile_visits,followers_gained,inbound_messages,bookings,ad_spend,notes,raw_metrics",
             "telegram_user_id": f"eq.{uid}",
             "order": "captured_at.desc",
             "limit": str(min(max(int(limit), 1), 100)),
