@@ -2,6 +2,7 @@ import unittest
 
 from analytics_engine import publication_analytics, funnel_analytics, build_analytics_snapshot
 from business_data import parse_lead, parse_booking, parse_publication
+from storage import parse_metric_message
 
 
 class AnalyticsEngineTests(unittest.TestCase):
@@ -69,6 +70,17 @@ class AnalyticsEngineTests(unittest.TestCase):
         self.assertEqual(result["topic"], "Графика")
         with self.assertRaises(ValueError):
             parse_publication("platform=Threads; topic=Test; url=javascript:alert(1)")
+
+    def test_metric_parser_links_publication_id(self):
+        result = parse_metric_message(
+            "Threads; публикация=42; 1200 просмотров; 32 лайка; 4 комментария"
+        )
+        self.assertEqual(result["publication_id"], 42)
+        self.assertEqual(result["metrics"]["views"], 1200)
+
+    def test_negative_booking_amount_is_rejected(self):
+        with self.assertRaises(ValueError):
+            parse_booking("дата=2026-11-25; сумма=-15000; статус=booked")
 
 
 if __name__ == "__main__":
