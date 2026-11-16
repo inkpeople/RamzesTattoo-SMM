@@ -536,6 +536,7 @@ def _telegram_html(text):
 
 
 def send_text(chat_id, text):
+    first_message_id = None
     text = str(text or "").strip()
     if not text:
         text = "Не удалось получить ответ. Попробуй ещё раз."
@@ -546,8 +547,20 @@ def send_text(chat_id, text):
             split_at = part.rfind("\n")
             if split_at > 1800:
                 part = part[:split_at]
-        tg("sendMessage", {"chat_id": chat_id, "text": part, "parse_mode": "HTML", "disable_web_page_preview": True})
+        result = tg("sendMessage", {"chat_id": chat_id, "text": part, "parse_mode": "HTML", "disable_web_page_preview": True})
+        if first_message_id is None:
+            first_message_id = result.get("message_id") if isinstance(result, dict) else None
         formatted = formatted[len(part):].lstrip()
+    return first_message_id
+
+
+def edit_status(chat_id, message_id, text):
+    if not message_id:
+        return
+    try:
+        tg("editMessageText", {"chat_id": chat_id, "message_id": message_id, "text": text, "disable_web_page_preview": True})
+    except Exception as exc:
+        log.warning("Could not update progress message: %s", exc)
 
 
 def menu_markup():
@@ -721,11 +734,15 @@ def run_analytics(chat_id):
     ask_ai(chat_id, prompt)
 
 
-def ask_ai(chat_id, user_text):
+def ask_ai(chat_id, user_text, status_message_id=None):
+    def progress(message):
+        edit_status(chat_id, status_message_id, message)
+
     if not OPENROUTER_API_KEY:
         send_text(chat_id, "Не настроен OPENROUTER_API_KEY на хостинге.")
         return
 
+    progress("⏳ Этап 1/4 — собираю профиль бренда, историю и темы.")
     persistent_history = load_chat_history(chat_id, OWNER_ID or chat_id)
     if persistent_history is not None:
         with memory_lock:
@@ -990,16 +1007,20 @@ def ask_ai(chat_id, user_text):
                 "Каждый раздел раскрывает только назначенную тему. Не добавляй план или отчёт."
             )
 
+        progress("✍️ Этап 2/4 — создаю черновик публикаций и сценария.")
         draft = request_ai(
             [{"role": "system", "content": SYSTEM_PROMPT + seasonal_context + brand_context + recent_content_context}]
             + history + [{"role": "user", "content": generation_instruction}],
             0.85, 7000 if is_factory else 3500, "RAMZES CONTENT ENGINE DRAFT"
         )
 
+        progress("🛠 Этап 3/4 — редактирую тексты и привожу их к формату публикации.")
         if is_daily:
             answer = edit_draft(draft, plan)
+            progress("🔍 Этап 4/4 — проверяю факты, повторы и соответствие заданию.")
             passed, issues = audit_package(plan, answer)
             if not passed:
+                progress("♻️ Проверка нашла замечания. Пересоздаю и повторно проверяю материал.")
                 log.warning("Daily package failed QA; retrying. Issues: %s", issues)
                 retry_instruction = (
                     generation_instruction + "\n\nПРЕДЫДУЩАЯ ВЕРСИЯ НЕ ПРОШЛА ПРОВЕРКУ. "
@@ -1020,8 +1041,10 @@ def ask_ai(chat_id, user_text):
                 return
         elif is_content_request:
             answer = edit_draft(draft, "", "")
+            progress("🔍 Этап 4/4 — проверяю факты, повторы и соответствие запросу.")
             passed, issues = audit_general_content(user_text, answer)
             if not passed:
+                progress("♻️ Проверка нашла замечания. Дорабатываю и повторно проверяю материал.")
                 log.warning("Content package failed independent QA; retrying. Issues: %s", issues)
                 retry_instruction = (
                     generation_instruction + "\n\nПРЕДЫДУЩАЯ ВЕРСИЯ НЕ ПРОШЛА НЕЗАВИСИМУЮ ПРОВЕРКУ. "
@@ -1042,6 +1065,7 @@ def ask_ai(chat_id, user_text):
         else:
             answer = edit_draft(draft, "", "")
 
+        progress("📦 Сохраняю результат и отправляю готовый материал.")
         remember(chat_id, "user", user_text)
         remember(chat_id, "assistant", answer)
 
@@ -1075,9 +1099,11 @@ def ask_ai(chat_id, user_text):
             else:
                 cache_content_pack(chat_id, content_type, answer, plan)
 
+        progress("✅ Готово. Отправляю результат ниже.")
         send_text(chat_id, answer)
 
     except Exception as exc:
+        progress("⚠️ Не удалось завершить этап. Сейчас отправлю описание ошибки.")
         log.exception("AI request failed")
         send_text(chat_id, f"Не получилось получить ответ от ИИ. Проверь API-ключ, баланс OpenRouter и модель.\nТехническая ошибка: {str(exc)[:350]}")
 
@@ -1115,8 +1141,8 @@ def process_update(update):
                 run_analytics(chat_id)
                 return
             if action in ACTIONS:
-                send_text(chat_id, "Готовлю материал. Это может занять немного времени…")
-                ask_ai(chat_id, ACTIONS[action])
+                status_id = send_text(chat_id, "⏳ Запускаю подготовку. Скоро покажу этапы работы.")
+                ask_ai(chat_id, ACTIONS[action], status_id)
             return
 
         message = update.get("message") or update.get("edited_message")
@@ -1199,12 +1225,12 @@ def process_update(update):
             elif action == "analytics":
                 run_analytics(chat_id)
             else:
-                send_text(chat_id, "Готовлю материал. Это может занять немного времени…")
-                ask_ai(chat_id, ACTIONS[action])
+                status_id = send_text(chat_id, "⏳ Запускаю подготовку. Скоро покажу этапы работы.")
+                ask_ai(chat_id, ACTIONS[action], status_id)
             return
 
-        send_text(chat_id, "Принял задачу. Готовлю ответ…")
-        ask_ai(chat_id, text)
+        status_id = send_text(chat_id, "⏳ Принял задачу. Собираю контекст и готовлю ответ.")
+        ask_ai(chat_id, text, status_id)
     except Exception:
         log.exception("Update processing failed")
 
