@@ -183,9 +183,9 @@ def scan_once():
     if sources and OPENROUTER_KEY:
         report=ask_market_ai(sources,recent_posts())
     elif sources:
-        report = "Найдены публичные материалы (ИИ-анализ отключён: нет OPENROUTER_API_KEY):\\n\\n" + "\\n".join(
-            f"- {item.get('title') or 'Без заголовка'}\\n{item.get('url')}" for item in sources[:20]
-        ) + "\\n\\nЭто поисковая выборка, а не полный обзор рынка. Охваты и закрытые метрики неизвестны."
+        report = "Найдены публичные материалы (ИИ-анализ отключён: нет OPENROUTER_API_KEY):\n\n" + "\n".join(
+            f"- {item.get('title') or 'Без заголовка'}\n{item.get('url')}" for item in sources[:20]
+        ) + "\n\nЭто поисковая выборка, а не полный обзор рынка. Охваты и закрытые метрики неизвестны."
     else:
         report=f"За последние {REPORT_HOURS} часов не найдено новых релевантных материалов в подключённых публичных источниках. Это не доказывает отсутствие рекламы: часть соцсетей закрыта для индексации."
     if digest(report)==state_get("last_report_hash",""):
