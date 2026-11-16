@@ -44,7 +44,7 @@ def main():
         raise SystemExit("Missing required GitHub Actions secrets/variables: " + ", ".join(missing))
     since = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
     metrics = _get("ramzes_content_engine_metrics",
-                   "platform,views,likes,comments,reposts,saves,profile_visits,followers_gained,inbound_messages,bookings,ad_spend,captured_at", since)
+                   "platform,publication_id,views,likes,comments,reposts,saves,profile_visits,followers_gained,inbound_messages,bookings,ad_spend,captured_at", since, date_column="captured_at")
     leads = _get("ramzes_content_engine_leads", "stage,created_at,lead_data", since)
     bookings = _get("ramzes_content_engine_bookings", "status,amount,created_at,session_date", since)
     market = _get("ramzes_content_engine_market_sources", "id,created_at", since)
