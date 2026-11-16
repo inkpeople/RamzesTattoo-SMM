@@ -752,7 +752,7 @@ def ask_ai(chat_id, user_text):
         "X-Title": "RAMZES CONTENT ENGINE"
     }
 
-    def request_ai(messages, temperature, max_tokens, title, timeout=90, web_search=False):
+    def request_ai(messages, temperature, max_tokens, title, timeout=60, web_search=False):
         call_headers = dict(headers)
         call_headers["X-Title"] = title
         body = {"model": MODEL, "messages": messages, "temperature": temperature, "max_tokens": max_tokens}
@@ -842,7 +842,7 @@ def ask_ai(chat_id, user_text):
         raw = request_ai(
             [{"role": "system", "content": "Ты строгий независимый QA-аудитор. Не ставь pass=true из вежливости."},
              {"role": "user", "content": prompt}],
-            0.0, 900, "RAMZES CONTENT QUALITY GATE"
+            0.0, 900, "RAMZES CONTENT QUALITY GATE", timeout=25
         )
         match = re.search(r"\{[\s\S]*\}", raw)
         if not match:
@@ -906,7 +906,7 @@ def ask_ai(chat_id, user_text):
         raw = request_ai(
             [{"role": "system", "content": "Ты строгий независимый QA-аудитор. Не ставь pass=true из вежливости."},
              {"role": "user", "content": prompt}],
-            0.0, 1200, "RAMZES GENERAL CONTENT QA"
+            0.0, 1200, "RAMZES GENERAL CONTENT QA", timeout=25
         )
         match = re.search(r"\{[\s\S]*\}", raw)
         if not match:
@@ -957,7 +957,7 @@ def ask_ai(chat_id, user_text):
             answer = request_ai(
                 [{"role": "system", "content": SYSTEM_PROMPT + seasonal_context + brand_context},
                  {"role": "user", "content": market_prompt + "\n\nЗапрос владельца: " + market_request}],
-                0.25, 7000, "RAMZES MARKET RESEARCH", timeout=180, web_search=True
+                0.25, 7000, "RAMZES MARKET RESEARCH", timeout=120, web_search=True
             )
             remember(chat_id, "user", user_text)
             remember(chat_id, "assistant", answer)
