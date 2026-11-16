@@ -1,5 +1,5 @@
 """24/7 public-market monitor for RAMZES AI."""
-import hashlib, logging, os, re, sqlite3, time
+import hashlib, logging, os, re, sqlite3, time, sys
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone, timedelta
 from urllib.parse import quote_plus, urlparse, urlunparse, parse_qsl, urlencode
@@ -15,7 +15,13 @@ BRAVE_KEY=os.getenv("BRAVE_SEARCH_API_KEY","").strip()
 LOCATION=os.getenv("MARKET_MONITOR_LOCATION","Новосибирск, Россия").strip()
 INTERVAL=max(900,int(os.getenv("MARKET_MONITOR_INTERVAL_SECONDS","3600")))
 REPORT_HOURS=max(1,int(os.getenv("MARKET_REPORT_INTERVAL_HOURS","6")))
-DB_PATH=os.getenv("MARKET_DB_PATH","/var/data/ramzes_market_intel.sqlite3")
+DB_PATH=os.getenv("MARKET_DB_PATH",os.path.join(os.getenv("RUNNER_TEMP","/tmp"),"ramzes_market_intel.sqlite3"))
+try:
+    from storage import save_market_sources, load_recent_market_sources, enabled as storage_enabled
+except Exception:
+    save_market_sources = lambda *args, **kwargs: 0
+    load_recent_market_sources = lambda *args, **kwargs: []
+    storage_enabled = lambda: False
 SEARCHES=[
  ("ads","тату мастер Новосибирск реклама запись цена скидка"),
  ("ads","тату Новосибирск акция реклама сертификат запись"),
@@ -85,13 +91,34 @@ def store_new_sources(rows):
         for row in rows:
             cur=db.execute("INSERT OR IGNORE INTO market_sources(url,source_type,title,snippet,published_at,first_seen_at) VALUES(?,?,?,?,?,?)",(row["url"],row["source_type"],row["title"],row["snippet"],str(row.get("published_at") or ""),iso_now()))
             if cur.rowcount: new.append(row)
+    if storage_enabled():
+        save_market_sources(OWNER_ID, new)
     return new
 def recent_sources(hours=24,limit=60):
     cutoff=(utc_now()-timedelta(hours=hours)).isoformat()
     with sqlite3.connect(DB_PATH) as db:
         db.row_factory=sqlite3.Row
         rows=db.execute("SELECT url,source_type,title,snippet,published_at,first_seen_at FROM market_sources WHERE first_seen_at>=? ORDER BY first_seen_at DESC LIMIT ?",(cutoff,limit)).fetchall()
-    return [dict(r) for r in rows]
+    local = [dict(r) for r in rows]
+    if storage_enabled():
+        try:
+            persistent = load_recent_market_sources(OWNER_ID, limit, since=cutoff)
+            for item in persistent:
+                local.append({
+                    "url": item.get("source_url", ""),
+                    "source_type": item.get("source_type", "public_web"),
+                    "title": item.get("title", ""),
+                    "snippet": item.get("excerpt", ""),
+                    "published_at": item.get("published_at", ""),
+                    "first_seen_at": item.get("created_at", ""),
+                })
+        except Exception as exc:
+            log.warning("Persistent market memory unavailable (%s)", type(exc).__name__)
+    unique = {}
+    for item in local:
+        if item.get("url"):
+            unique.setdefault(item["url"], item)
+    return list(unique.values())[:limit]
 def recent_posts(limit=30):
     with sqlite3.connect(DB_PATH) as db: rows=db.execute("SELECT body FROM market_posts ORDER BY created_at DESC LIMIT ?",(limit,)).fetchall()
     return [r[0] for r in rows]
@@ -153,8 +180,14 @@ def scan_once():
     if not due:
         log.info("Scan: %s results, %s new; digest not due",len(rows),len(new)); return
     sources=recent_sources(24,60)
-    if sources: report=ask_market_ai(sources,recent_posts())
-    else: report=f"За последние {REPORT_HOURS} часов не найдено новых релевантных материалов в подключённых публичных источниках. Это не доказывает отсутствие рекламы: часть соцсетей закрыта для индексации."
+    if sources and OPENROUTER_KEY:
+        report=ask_market_ai(sources,recent_posts())
+    elif sources:
+        report = "Найдены публичные материалы (ИИ-анализ отключён: нет OPENROUTER_API_KEY):\n\n" + "\n".join(
+            f"- {item.get('title') or 'Без заголовка'}\n{item.get('url')}" for item in sources[:20]
+        ) + "\n\nЭто поисковая выборка, а не полный обзор рынка. Охваты и закрытые метрики неизвестны."
+    else:
+        report=f"За последние {REPORT_HOURS} часов не найдено новых релевантных материалов в подключённых публичных источниках. Это не доказывает отсутствие рекламы: часть соцсетей закрыта для индексации."
     if digest(report)==state_get("last_report_hash",""):
         report="За период не появилось новых выводов. Источники проверены; идентичный отчёт не повторяю."
     send_telegram(f"🔎 RAMZES AI · РЫНОК И КОНТЕНТ\nЛокация: {LOCATION}\n\n{report}")
@@ -171,4 +204,11 @@ def main():
         try: scan_once()
         except Exception as exc: log.exception("Market scan failed (%s)",type(exc).__name__)
         time.sleep(max(30,INTERVAL-(time.monotonic()-start)))
-if __name__=="__main__": main()
+if __name__=="__main__":
+    if "--once" in sys.argv:
+        init_db()
+        if not BOT_TOKEN or not OWNER_ID:
+            raise SystemExit("Set TELEGRAM_BOT_TOKEN and TELEGRAM_OWNER_ID")
+        scan_once()
+    else:
+        main()

@@ -1,0 +1,64 @@
+"""One-shot daily owner report for GitHub Actions or a trusted server."""
+import os
+from datetime import datetime, timedelta, timezone
+import requests
+
+from analytics_engine import render_daily_report
+
+BASE = os.getenv("SUPABASE_URL", "").strip().rstrip("/")
+KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "").strip()
+BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
+OWNER_ID = os.getenv("TELEGRAM_OWNER_ID", "").strip()
+
+
+def _get(table, select, since, date_column="created_at"):
+    params = {"select": select, "telegram_user_id": f"eq.{OWNER_ID}",
+              "order": f"{date_column}.desc", "limit": "500"}
+    if since:
+        params[date_column] = f"gte.{since}"
+    response = requests.get(
+        f"{BASE}/rest/v1/{table}",
+        params=params,
+        headers={"apikey": KEY, "Authorization": f"Bearer {KEY}"},
+        timeout=20,
+    )
+    response.raise_for_status()
+    return response.json()
+
+
+def send_report(text):
+    response = requests.post(
+        f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+        json={"chat_id": OWNER_ID, "text": text, "disable_web_page_preview": True},
+        timeout=20,
+    )
+    response.raise_for_status()
+    payload = response.json()
+    if not payload.get("ok"):
+        raise RuntimeError("Telegram rejected daily report")
+
+
+def main():
+    missing = [name for name, value in (
+        ("SUPABASE_URL", BASE), ("SUPABASE_SERVICE_ROLE_KEY", KEY),
+        ("TELEGRAM_BOT_TOKEN", BOT_TOKEN), ("TELEGRAM_OWNER_ID", OWNER_ID)
+    ) if not value]
+    if missing:
+        raise SystemExit("Missing required GitHub Actions secrets/variables: " + ", ".join(missing))
+    since = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+    metrics = _get("ramzes_content_engine_metrics",
+                   "platform,publication_id,views,likes,comments,reposts,saves,profile_visits,followers_gained,inbound_messages,bookings,ad_spend,captured_at", since, date_column="captured_at")
+    daily_leads = _get("ramzes_content_engine_leads", "id,stage,created_at,lead_data", since)
+    leads = _get("ramzes_content_engine_leads", "id,stage,created_at,lead_data", None)
+    daily_bookings = _get("ramzes_content_engine_bookings", "id,lead_id,status,amount,created_at,session_date", since)
+    bookings = _get("ramzes_content_engine_bookings", "id,lead_id,status,amount,created_at,session_date", None)
+    market = _get("ramzes_content_engine_market_sources", "id,created_at", since)
+    publications = _get("ramzes_content_engine_publications", "id,platform,topic,hook,url,published_at", None)
+    send_report(render_daily_report(
+        metrics, leads, bookings, len(market), publications,
+        daily_leads=daily_leads, daily_bookings=daily_bookings
+    ))
+
+
+if __name__ == "__main__":
+    main()

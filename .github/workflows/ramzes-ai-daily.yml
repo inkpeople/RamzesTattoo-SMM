@@ -1,0 +1,81 @@
+name: RAMZES AI daily intelligence
+
+on:
+  push:
+    branches:
+      - ramzes-ai-orchestrator-implementation
+  schedule:
+    # 06:00 Novosibirsk (UTC+7)
+    - cron: "0 23 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ramzes-ai-daily-intelligence
+  cancel-in-progress: false
+
+jobs:
+  daily-intelligence:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ramzes-content-engine
+    env:
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_OWNER_ID: ${{ secrets.TELEGRAM_OWNER_ID }}
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      BRAVE_SEARCH_API_KEY: ${{ secrets.BRAVE_SEARCH_API_KEY }}
+      RAMZES_STORAGE_ENABLED: "true"
+      MARKET_MONITOR_LOCATION: "Новосибирск, Россия"
+      MARKET_DB_PATH: /tmp/ramzes_market_intel.sqlite3
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: ramzes-content-engine/requirements.txt
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Restore market-monitor cache
+        uses: actions/cache/restore@v4
+        with:
+          path: /tmp/ramzes_market_intel.sqlite3
+          key: ramzes-market-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            ramzes-market-${{ runner.os }}-
+
+      - name: Scan public competitors and trends
+        if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
+        shell: bash
+        run: |
+          if [ -z "$TELEGRAM_BOT_TOKEN" ] || [ -z "$TELEGRAM_OWNER_ID" ]; then
+            echo "::warning::Market scan skipped: add TELEGRAM_BOT_TOKEN and TELEGRAM_OWNER_ID to repository Actions secrets."
+            exit 0
+          fi
+          python market_monitor_worker.py --once
+
+      - name: Save market-monitor cache
+        if: ${{ always() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') }}
+        uses: actions/cache/save@v4
+        with:
+          path: /tmp/ramzes_market_intel.sqlite3
+          key: ramzes-market-${{ runner.os }}-${{ github.run_id }}
+
+      - name: Send daily performance and booking report
+        if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
+        shell: bash
+        run: |
+          if [ -z "$TELEGRAM_BOT_TOKEN" ] || [ -z "$TELEGRAM_OWNER_ID" ] || [ -z "$SUPABASE_URL" ] || [ -z "$SUPABASE_SERVICE_ROLE_KEY" ]; then
+            echo "::warning::Daily business report skipped: add Telegram and dedicated RAMZES AI Supabase secrets."
+            exit 0
+          fi
+          python daily_report.py

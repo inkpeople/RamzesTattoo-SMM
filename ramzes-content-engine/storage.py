@@ -358,7 +358,7 @@ def load_recent_metrics(telegram_user_id, limit=30):
         "GET",
         "ramzes_content_engine_metrics",
         params={
-            "select": "platform,captured_at,views,likes,comments,reposts,saves,profile_visits,followers_gained,inbound_messages,bookings,ad_spend,notes,raw_metrics",
+            "select": "platform,captured_at,publication_id,views,likes,comments,reposts,saves,profile_visits,followers_gained,inbound_messages,bookings,ad_spend,notes,raw_metrics",
             "telegram_user_id": f"eq.{uid}",
             "order": "captured_at.desc",
             "limit": str(min(max(int(limit), 1), 100)),
@@ -415,9 +415,11 @@ def parse_metric_message(text):
     metrics = {key: value for key, value in metrics.items() if value is not None}
     if not metrics:
         return None
+    publication_match = re.search(r"(?:publication|публикация)\s*[:=#]?\s*(\d+)", raw, flags=re.IGNORECASE)
     return {
         "platform": platform,
         "metrics": metrics,
+        "publication_id": int(publication_match.group(1)) if publication_match else None,
         "raw_metrics": {"source_text": raw},
         "notes": raw[:1000],
     }
@@ -441,10 +443,268 @@ def save_metric(telegram_user_id, parsed):
     for key, value in metrics.items():
         if key in allowed:
             payload[key] = value
+    if parsed.get("publication_id") is not None:
+        payload["publication_id"] = int(parsed["publication_id"])
     result = _request(
         "POST",
         "ramzes_content_engine_metrics",
         payload=payload,
+        prefer="return=representation",
+    )
+    return isinstance(result, list) and bool(result)
+
+
+
+def save_lead(telegram_user_id, lead_data, score=None):
+    uid = _uid(telegram_user_id)
+    if uid is None or not isinstance(lead_data, dict):
+        return None
+    rows = _request(
+        "POST", "ramzes_content_engine_leads",
+        payload={
+            "telegram_user_id": uid,
+            "source_platform": str(lead_data.get("source_platform") or "unknown")[:40],
+            "stage": "new",
+            "lead_data": lead_data,
+            "score": score or {},
+        },
+        prefer="return=representation",
+    )
+    return rows[0] if isinstance(rows, list) and rows else None
+
+
+def load_recent_leads(telegram_user_id, limit=100):
+    uid = _uid(telegram_user_id)
+    if uid is None:
+        return []
+    rows = _request(
+        "GET", "ramzes_content_engine_leads",
+        params={
+            "select": "id,created_at,source_platform,stage,lead_data,score",
+            "telegram_user_id": f"eq.{uid}",
+            "order": "created_at.desc",
+            "limit": str(min(max(int(limit), 1), 500)),
+        },
+    )
+    return rows if isinstance(rows, list) else []
+
+
+def save_booking(telegram_user_id, booking_data):
+    uid = _uid(telegram_user_id)
+    if uid is None or not isinstance(booking_data, dict):
+        return None
+    rows = _request(
+        "POST", "ramzes_content_engine_bookings",
+        payload={
+            "telegram_user_id": uid,
+            "lead_id": booking_data.get("lead_id"),
+            "session_date": booking_data["session_date"],
+            "status": booking_data.get("status", "booked"),
+            "amount": booking_data.get("amount"),
+            "source_platform": str(booking_data.get("source_platform") or "unknown")[:40],
+        },
+        prefer="return=representation",
+    )
+    return rows[0] if isinstance(rows, list) and rows else None
+
+
+def load_recent_bookings(telegram_user_id, limit=200):
+    uid = _uid(telegram_user_id)
+    if uid is None:
+        return []
+    rows = _request(
+        "GET", "ramzes_content_engine_bookings",
+        params={
+            "select": "id,lead_id,created_at,session_date,status,amount,source_platform",
+            "telegram_user_id": f"eq.{uid}",
+            "order": "session_date.desc",
+            "limit": str(min(max(int(limit), 1), 500)),
+        },
+    )
+    return rows if isinstance(rows, list) else []
+
+
+def save_publication(telegram_user_id, platform, topic, hook="", url="", content_type="post", published_at=None):
+    uid = _uid(telegram_user_id)
+    if uid is None or not str(topic or "").strip():
+        return None
+    normalized = re.sub(r"\s+", " ", f"{platform}|{topic}|{hook}|{url}|{published_at or ''}").lower().strip()
+    digest = hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+    payload = {
+        "telegram_user_id": uid,
+        "platform": str(platform or "unknown")[:40],
+        "topic": str(topic)[:1000],
+        "hook": str(hook)[:500],
+        "url": str(url)[:2000],
+        "content_type": str(content_type or "post")[:60],
+        "status": "published",
+        "content_hash": digest,
+    }
+    if published_at:
+        payload["published_at"] = published_at
+    rows = _request(
+        "POST", "ramzes_content_engine_publications",
+        params={"on_conflict": "telegram_user_id,content_hash"},
+        payload=payload,
+        prefer="resolution=merge-duplicates,return=representation",
+    )
+    return rows[0] if isinstance(rows, list) and rows else None
+
+
+def load_recent_publications(telegram_user_id, limit=100):
+    uid = _uid(telegram_user_id)
+    if uid is None:
+        return []
+    rows = _request(
+        "GET", "ramzes_content_engine_publications",
+        params={
+            "select": "id,created_at,published_at,platform,content_type,topic,hook,url,status",
+            "telegram_user_id": f"eq.{uid}",
+            "order": "published_at.desc.nullslast",
+            "limit": str(min(max(int(limit), 1), 500)),
+        },
+    )
+    return rows if isinstance(rows, list) else []
+
+
+def save_memory_event(telegram_user_id, memory_type, content, source="owner", confidence=1.0, confirmed=True, metadata=None):
+    uid = _uid(telegram_user_id)
+    allowed = {"brand_fact", "preference", "decision", "campaign", "learning", "workflow"}
+    text_value = str(content or "").strip()
+    if uid is None or memory_type not in allowed or not text_value:
+        return False
+    result = _request(
+        "POST", "ramzes_content_engine_memory_events",
+        payload={
+            "telegram_user_id": uid,
+            "memory_type": memory_type,
+            "content": text_value[:4000],
+            "source": str(source or "owner")[:80],
+            "confidence": max(0.0, min(float(confidence), 1.0)),
+            "confirmed": bool(confirmed),
+            "metadata": metadata or {},
+        },
+        prefer="return=minimal",
+    )
+    return result is not None
+
+
+def load_recent_memory_events(telegram_user_id, limit=60):
+    uid = _uid(telegram_user_id)
+    if uid is None:
+        return []
+    rows = _request(
+        "GET", "ramzes_content_engine_memory_events",
+        params={
+            "select": "created_at,memory_type,content,source,confidence,confirmed",
+            "telegram_user_id": f"eq.{uid}",
+            "confirmed": "eq.true",
+            "order": "created_at.desc",
+            "limit": str(min(max(int(limit), 1), 200)),
+        },
+    )
+    return rows if isinstance(rows, list) else []
+
+
+def build_memory_events_context(items):
+    if not items:
+        return ""
+    labels = {
+        "brand_fact": "Факт бренда", "preference": "Предпочтение",
+        "decision": "Решение", "campaign": "Кампания",
+        "learning": "Вывод", "workflow": "Рабочий процесс",
+    }
+    lines = []
+    for item in items[:30]:
+        content = str(item.get("content") or "").strip()
+        if content:
+            lines.append(f"- [{labels.get(item.get('memory_type'), 'Память')}] {content[:400]}")
+    return "\n\nДОЛГОСРОЧНАЯ ПАМЯТЬ RAMZES AI (подтверждённые записи):\n" + "\n".join(lines) if lines else ""
+
+def save_agent_run(telegram_user_id, task_type, agent_ids, outputs, status="completed"):
+    uid = _uid(telegram_user_id)
+    if uid is None:
+        return False
+    # Store execution metadata only. Model outputs can echo customer data from context.
+    safe_outputs = {}
+    for key, value in (outputs or {}).items():
+        safe_outputs[str(key)[:80]] = {
+            "present": bool(str(value).strip()),
+            "characters": min(len(str(value)), 100000),
+        }
+    result = _request(
+        "POST", "ramzes_content_engine_agent_runs",
+        payload={
+            "telegram_user_id": uid,
+            "task_type": str(task_type or "general")[:80],
+            "agent_ids": list(agent_ids or [])[:40],
+            "status": str(status or "completed")[:40],
+            "outputs": safe_outputs,
+        },
+        prefer="return=minimal",
+    )
+    return result is not None
+
+
+def save_market_sources(telegram_user_id, sources):
+    uid = _uid(telegram_user_id)
+    if uid is None:
+        return 0
+    saved = 0
+    for item in (sources or [])[:100]:
+        url = str(item.get("url") or item.get("source_url") or "").strip()
+        if not url.startswith(("https://", "http://")):
+            continue
+        title = str(item.get("title") or "")[:400]
+        excerpt = str(item.get("snippet") or item.get("excerpt") or "")[:1800]
+        digest = hashlib.sha256((url + title + excerpt).encode("utf-8")).hexdigest()
+        rows = _request(
+            "POST", "ramzes_content_engine_market_sources",
+            params={"on_conflict": "telegram_user_id,source_url"},
+            payload={
+                "telegram_user_id": uid, "source_url": url,
+                "source_type": str(item.get("source_type") or "public_web")[:60],
+                "title": title, "excerpt": excerpt,
+                "published_at": str(item.get("published_at") or "")[:120],
+                "content_hash": digest,
+            },
+            prefer="resolution=ignore-duplicates,return=minimal",
+        )
+        if rows is not None:
+            saved += 1
+    return saved
+
+
+def load_recent_market_sources(telegram_user_id, limit=100, since=None):
+    uid = _uid(telegram_user_id)
+    if uid is None:
+        return []
+    params = {
+        "select": "created_at,source_url,source_type,title,excerpt,published_at,content_hash",
+        "telegram_user_id": f"eq.{uid}",
+        "order": "created_at.desc",
+        "limit": str(min(max(int(limit), 1), 500)),
+    }
+    if since:
+        params["created_at"] = f"gte.{since}"
+    rows = _request("GET", "ramzes_content_engine_market_sources", params=params)
+    return rows if isinstance(rows, list) else []
+
+
+
+def update_lead_stage(telegram_user_id, lead_id, stage):
+    uid = _uid(telegram_user_id)
+    allowed = {"new", "qualified", "consultation", "booked", "completed", "lost"}
+    try:
+        record_id = int(lead_id)
+    except (TypeError, ValueError):
+        return False
+    if uid is None or stage not in allowed:
+        return False
+    result = _request(
+        "PATCH", "ramzes_content_engine_leads",
+        params={"id": f"eq.{record_id}", "telegram_user_id": f"eq.{uid}"},
+        payload={"stage": stage},
         prefer="return=representation",
     )
     return isinstance(result, list) and bool(result)

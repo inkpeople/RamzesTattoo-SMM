@@ -34,6 +34,25 @@ class AgentPipelineTests(unittest.TestCase):
         self.assertEqual(len(calls), 2)
         self.assertTrue(result["draft"])
 
+    def test_router_selected_content_extras_are_executed(self):
+        calls = []
+
+        def fake_model(messages, temperature, max_tokens, title, timeout=60, web_search=False):
+            calls.append(title)
+            return "Результат " + title
+
+        result = run_content_team(
+            fake_model,
+            "Напиши пост для Threads, проверь заголовки, не повторяй темы и предложи гипотезу эксперимента",
+            full_team=True,
+            platforms=["Threads"],
+            recent_topics=["Тема из архива"],
+        )
+        self.assertIn("headline_tester", result["agent_notes"])
+        self.assertIn("experiment_planner", result["agent_notes"])
+        self.assertIn("anti_repeat", result["agent_notes"])
+        self.assertTrue(any("ЗАГОЛОВ" in title.upper() for title in calls))
+
     def test_research_agent_requests_web_search(self):
         calls = []
 
