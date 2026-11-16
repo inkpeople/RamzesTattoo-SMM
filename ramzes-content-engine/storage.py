@@ -686,3 +686,22 @@ def load_recent_market_sources(telegram_user_id, limit=100):
         },
     )
     return rows if isinstance(rows, list) else []
+
+
+
+def update_lead_stage(telegram_user_id, lead_id, stage):
+    uid = _uid(telegram_user_id)
+    allowed = {"new", "qualified", "consultation", "booked", "completed", "lost"}
+    try:
+        record_id = int(lead_id)
+    except (TypeError, ValueError):
+        return False
+    if uid is None or stage not in allowed:
+        return False
+    result = _request(
+        "PATCH", "ramzes_content_engine_leads",
+        params={"id": f"eq.{record_id}", "telegram_user_id": f"eq.{uid}"},
+        payload={"stage": stage},
+        prefer="return=minimal",
+    )
+    return result is not None
