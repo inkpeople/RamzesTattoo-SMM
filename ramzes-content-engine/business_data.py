@@ -107,3 +107,19 @@ def parse_publication(raw):
         "url": url[:2000],
         "published_at": published_at,
     }
+
+
+
+def deadline_in_days(value):
+    """Convert only explicit Russian day/week/month units; do not guess."""
+    text = str(value or "").lower()
+    match = re.search(r"(\d+)\s*(дн(?:я|ей|и)?|день|недел(?:я|и|ь|ю)?|месяц(?:а|ев)?)", text)
+    if not match:
+        return None
+    amount = int(match.group(1))
+    unit = match.group(2)
+    if "недел" in unit:
+        amount *= 7
+    elif "месяц" in unit:
+        amount *= 30
+    return amount if 0 <= amount <= 3650 else None
