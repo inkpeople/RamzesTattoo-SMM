@@ -1010,6 +1010,7 @@ def record_memory_event(chat_id, raw):
 def record_lead(chat_id, raw):
     try:
         data = parse_lead(raw)
+        deadline_match = re.search(r"\d+", str(data.get("deadline") or ""))
         score_input = {
             "asked_booking": any(word in str(data.get("intent", "")).lower()
                                  for word in ("запис", "сеанс", "хочу тату")),
@@ -1018,6 +1019,8 @@ def record_lead(chat_id, raw):
             "style": data.get("style"),
             "budget_known": data.get("budget") is not None,
         }
+        if deadline_match:
+            score_input["timeline_days"] = int(deadline_match.group(0))
         score = score_lead(score_input)
         if storage_enabled():
             saved = save_lead(OWNER_ID or chat_id, data, score)
