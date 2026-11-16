@@ -5,6 +5,8 @@ credentials, does not publish content, and treats retrieved web/user material
 as untrusted data rather than instructions.
 """
 
+import re
+
 from agent_registry import plan_task, AGENT_BY_ID
 from agent_tools import (
     score_lead, calculate_offer_economics, find_repeated_topics,
@@ -324,7 +326,7 @@ def run_specialist_team(model_call, request, context="", task_context=None,
 
 
 def run_content_team(model_call, request, context="", max_tokens=5000,
-                     full_team=True, platforms=None):
+                     full_team=True, platforms=None, recent_topics=None):
     """Orchestrate a bounded specialist team; preserve final editor/QA in the calling app."""
     task_plan = plan_task(request, full_team=full_team)
     brief = strategist_agent(model_call, request, context)
@@ -394,5 +396,50 @@ def run_content_team(model_call, request, context="", max_tokens=5000,
                 "ВЕРСИЯ ДЛЯ " + platform.upper() + ":\n" + version
                 for platform, version in result["platform_versions"].items()
             )
+    # Run cross-cutting roles selected by the same deterministic router.
+    # Keep a hard budget so a complex brief cannot fan out without bounds.
+    already_used = (10 if full_team else 2) + len(platforms or [])
+    extra_budget = max(0, 16 - already_used - 1)  # reserve one call for the app's final editor
+    extra_roles = [
+        "competitor_watch", "trend_radar", "lead_finder",
+        "content_repurpose", "headline_tester", "portfolio_archivist",
+        "experiment_planner", "campaigns", "audience_segments",
+        "reputation", "referrals", "client_return",
+        "objection_analyst", "reply_assistant", "community",
+    ]
+    selected_extras = [
+        agent_id for agent_id in task_plan["agents"]
+        if agent_id in extra_roles
+    ][:extra_budget]
+    for agent_id in selected_extras:
+        result["agent_notes"][agent_id] = specialist_agent(
+            model_call, agent_id, str(request) + "\n\nЧЕРНОВИК ДЛЯ АНАЛИЗА:\n" + draft[:9000],
+            context=context,
+            web_search=agent_id in {"competitor_watch", "trend_radar", "lead_finder"},
+        )
+
+    if "anti_repeat" in task_plan["agents"]:
+        topic_candidates = re.findall(
+            r"(?im)^(?:Тема|Заголовок)\\s*[:—-]\\s*(.+)$", draft
+        )
+        if not topic_candidates:
+            topic_candidates = [line.strip() for line in draft.splitlines()
+                                if len(line.strip()) >= 25][:8]
+        result["agent_notes"]["anti_repeat"] = find_repeated_topics(
+            topic_candidates, recent_topics or []
+        )
+    if "publication_control" in task_plan["agents"]:
+        target_platform = (platforms or [None])[0]
+        result["agent_notes"]["publication_control"] = check_publication(draft, target_platform)
+
+    if result["agent_notes"]:
+        draft += (
+            "\n\nВНУТРЕННИЕ ЗАМЕЧАНИЯ ДОПОЛНИТЕЛЬНЫХ СПЕЦИАЛИСТОВ (НЕ ПУБЛИКОВАТЬ):\n"
+            + "\n\n".join(
+                str(agent_id) + ":\n" + str(note)
+                for agent_id, note in result["agent_notes"].items()
+                if agent_id in selected_extras or agent_id in {"anti_repeat", "publication_control"}
+            )
+        )
     result["draft"] = draft
     return result
