@@ -58,6 +58,23 @@ create table if not exists public.ramzes_content_engine_metrics (
 create index if not exists ramzes_content_engine_metrics_owner_date_idx
   on public.ramzes_content_engine_metrics (telegram_user_id, captured_at desc);
 
+-- The Data API now requires explicit grants for newly created tables.
+-- Expose only these tables to the trusted server-side service_role; revoke client roles.
+grant usage on schema public to service_role;
+revoke all on table
+  public.ramzes_content_engine_chat_history,
+  public.ramzes_content_engine_brand_profile,
+  public.ramzes_content_engine_content_library,
+  public.ramzes_content_engine_metrics
+from anon, authenticated;
+grant select, insert, update, delete on table
+  public.ramzes_content_engine_chat_history,
+  public.ramzes_content_engine_brand_profile,
+  public.ramzes_content_engine_content_library,
+  public.ramzes_content_engine_metrics
+to service_role;
+grant usage, select on sequence public.ramzes_content_engine_content_library_id_seq to service_role;
+
 -- No anon/authenticated policies are created: RLS denies client access.
 -- The trusted bot backend accesses these tables with SUPABASE_SERVICE_ROLE_KEY.
 alter table public.ramzes_content_engine_chat_history enable row level security;
