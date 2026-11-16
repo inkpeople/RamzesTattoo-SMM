@@ -615,10 +615,10 @@ def build_memory_events_context(items):
         "learning": "Вывод", "workflow": "Рабочий процесс",
     }
     lines = []
-    for item in items[:60]:
+    for item in items[:30]:
         content = str(item.get("content") or "").strip()
         if content:
-            lines.append(f"- [{labels.get(item.get('memory_type'), 'Память')}] {content[:500]}")
+            lines.append(f"- [{labels.get(item.get('memory_type'), 'Память')}] {content[:400]}")
     return "\n\nДОЛГОСРОЧНАЯ ПАМЯТЬ RAMZES AI (подтверждённые записи):\n" + "\n".join(lines) if lines else ""
 
 def save_agent_run(telegram_user_id, task_type, agent_ids, outputs, status="completed"):
