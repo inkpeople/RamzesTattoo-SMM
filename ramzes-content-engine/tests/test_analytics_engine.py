@@ -18,8 +18,8 @@ class AnalyticsEngineTests(unittest.TestCase):
 
     def test_funnel_rates_and_revenue(self):
         result = funnel_analytics(
-            [{"stage": "new"}, {"stage": "qualified"}],
-            [{"status": "completed", "amount": 12000}, {"status": "cancelled", "amount": 5000}],
+            [{"id": 1, "stage": "new"}, {"id": 2, "stage": "qualified"}],
+            [{"lead_id": 1, "status": "completed", "amount": 12000}, {"lead_id": 2, "status": "cancelled", "amount": 5000}],
         )
         self.assertEqual(result["lead_to_booking_rate"], 0.5)
         self.assertEqual(result["completed_revenue"], 12000.0)
