@@ -35,6 +35,8 @@ def parse_fields(raw):
 def _money(value):
     if value is None or value == "":
         return None
+    if str(value).strip().startswith("-"):
+        raise ValueError("Сумма не может быть отрицательной.")
     digits = re.sub(r"[^0-9]", "", str(value))
     if not digits:
         raise ValueError("Сумма должна быть числом в рублях.")
