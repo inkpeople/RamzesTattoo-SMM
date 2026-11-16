@@ -234,7 +234,7 @@ SPECIALIST_INSTRUCTIONS = {
     "experiment_planner": "Сформулируй проверяемую гипотезу, контрольный и тестовый вариант, одну основную метрику, период и критерий решения. Не приписывай причинность корреляции.",
 }
 
-def specialist_agent(model_call, agent_id, task, context=""):
+def specialist_agent(model_call, agent_id, task, context="", web_search=False):
     """Run a registry specialist by stable ID; routing remains separate and deterministic."""
     spec = AGENT_BY_ID.get(str(agent_id))
     if spec is None:
@@ -248,7 +248,7 @@ def specialist_agent(model_call, agent_id, task, context=""):
         "Не совершай внешних действий.\\n\\nСПЕЦИАЛЬНЫЕ ИНСТРУКЦИИ:\\n"
         + SPECIALIST_INSTRUCTIONS.get(spec.agent_id, "Выполни задачу в рамках указанной роли.")
         + "\\n\\nЗАДАЧА:\\n" + str(task),
-        context, 0.25, spec.max_tokens
+        context, 0.25, spec.max_tokens, web_search=web_search
     )
 
 
@@ -308,7 +308,8 @@ def run_specialist_team(model_call, request, context="", task_context=None,
                 agent_context += "\n\nРЕЗУЛЬТАТ ИССЛЕДОВАНИЯ:\n" + str(research)
             result["agent_outputs"][agent_id] = specialist_agent(
                 model_call, agent_id, task_context if task_context is not None else request,
-                context=agent_context
+                context=agent_context,
+                web_search=agent_id in {"competitor_watch", "trend_radar", "lead_finder"},
             )
 
     result["summary"] = "\n\n".join(
