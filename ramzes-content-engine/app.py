@@ -13,6 +13,7 @@ import requests
 from flask import Flask, request, jsonify
 
 from runtime_guard import TaskGate, UpdateDispatcher
+from agents import run_content_team, research_agent
 
 from storage import (
     load_chat_history, save_chat_history, clear_chat_history,
@@ -1176,10 +1177,11 @@ def _ask_ai_impl(chat_id, user_text, status_message_id=None):
                 "Не называй RAMZES лучшим без объективного основания. Не придумывай цены, свободные окна, отзывы, результаты, охваты или личные процессы. "
                 "Формат: краткое резюме; рынок и метод/ограничения; таблица конкурентов с источниками; карта позиционирования; свободные темы; офферы; контент-план; готовые хуки; что нужно проверить у владельца."
             )
-            answer = request_ai(
-                [{"role": "system", "content": SYSTEM_PROMPT + seasonal_context + brand_context},
-                 {"role": "user", "content": market_prompt + "\n\nЗапрос владельца: " + market_request}],
-                0.25, 7000, "RAMZES MARKET RESEARCH", timeout=120, web_search=True
+            answer = research_agent(
+                request_ai,
+                market_prompt + "\n\nЗапрос владельца: " + market_request,
+                context=SYSTEM_PROMPT + seasonal_context + brand_context,
+                web_search=True
             )
             remember(chat_id, "user", user_text)
             remember(chat_id, "assistant", answer)
@@ -1212,12 +1214,22 @@ def _ask_ai_impl(chat_id, user_text, status_message_id=None):
                 "Каждый раздел раскрывает только назначенную тему. Не добавляй план или отчёт."
             )
 
-        progress("✍️ Этап 2/4 — создаю черновик публикаций и сценария.")
-        draft = request_ai(
-            [{"role": "system", "content": SYSTEM_PROMPT + seasonal_context + brand_context + recent_content_context}]
-            + history + [{"role": "user", "content": generation_instruction}],
-            0.85, 7000 if is_factory else 3500, "RAMZES CONTENT ENGINE DRAFT"
+        progress("🧠 Этап 2/5 — стратег формирует бриф, копирайтер создаёт черновик.")
+        history_context = "\n".join(
+            f"{item.get('role', 'message')}: {str(item.get('content', ''))[:1200]}"
+            for item in history[-8:]
         )
+        team_context = (
+            SYSTEM_PROMPT + seasonal_context + brand_context + recent_content_context
+            + ("\n\nИСТОРИЯ ДИАЛОГА:\n" + history_context if history_context else "")
+        )
+        team_result = run_content_team(
+            request_ai,
+            generation_instruction,
+            context=team_context,
+            max_tokens=7000 if is_factory else 3500
+        )
+        draft = team_result["draft"]
 
         progress("🛠 Этап 3/4 — редактирую тексты и привожу их к формату публикации.")
         if is_daily:
