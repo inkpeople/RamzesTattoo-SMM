@@ -14,6 +14,10 @@ from flask import Flask, request, jsonify
 
 from runtime_guard import TaskGate, UpdateDispatcher
 from agents import run_content_team, research_agent, run_specialist_team
+from agent_registry import plan_task
+from agent_tools import score_lead
+from business_data import parse_lead, parse_booking, parse_publication
+from analytics_engine import build_analytics_snapshot, render_daily_report
 
 from storage import (
     load_chat_history, save_chat_history, clear_chat_history,
@@ -21,6 +25,9 @@ from storage import (
     load_recent_content, build_recent_content_context,
     save_content_pack, extract_topics, topic_repeat_issues,
     load_recent_metrics, save_metric, parse_metric_message, healthcheck, enabled as storage_enabled,
+    save_lead, load_recent_leads, save_booking, load_recent_bookings,
+    save_publication, load_recent_publications, save_memory_event,
+    load_recent_memory_events, build_memory_events_context, save_agent_run,
 )
 
 logging.basicConfig(level=logging.INFO)
@@ -34,6 +41,9 @@ memory = {}
 memory_lock = threading.Lock()
 content_history_cache = []
 metrics_cache = []
+leads_cache = []
+bookings_cache = []
+publications_cache = []
 brand_profile_cache = None
 awaiting_tattoo_review = set()
 
@@ -804,7 +814,10 @@ def current_brand_profile(chat_id):
 def add_fact_to_profile(chat_id, fact):
     global brand_profile_cache
     if storage_enabled():
-        return add_brand_fact(OWNER_ID or chat_id, fact)
+        ok, profile = add_brand_fact(OWNER_ID or chat_id, fact)
+        if ok:
+            save_memory_event(OWNER_ID or chat_id, "brand_fact", fact, source="owner", confirmed=True)
+        return ok, profile
     with memory_lock:
         if brand_profile_cache is None:
             brand_profile_cache = load_brand_profile(OWNER_ID or chat_id)
@@ -912,7 +925,8 @@ def handle_metric(chat_id, metric_text):
         return
     values = ", ".join(f"{key}: {value}" for key, value in parsed["metrics"].items())
     if storage_enabled() and save_metric(OWNER_ID or chat_id, parsed):
-        send_text(chat_id, f"✅ Статистика сохранена постоянно.\nПлощадка: {parsed['platform']}\n{values}")
+        publication_note = f"\nПубликация ID: {parsed['publication_id']}" if parsed.get("publication_id") else ""
+        send_text(chat_id, f"✅ Статистика сохранена постоянно.\nПлощадка: {parsed['platform']}\n{values}{publication_note}")
     elif not storage_enabled():
         parsed["captured_at"] = datetime.now(ZoneInfo("Asia/Novosibirsk")).isoformat()
         with memory_lock:
@@ -923,21 +937,155 @@ def handle_metric(chat_id, metric_text):
         send_text(chat_id, "Не удалось сохранить статистику. Попробуй ещё раз.")
 
 
+def current_leads(chat_id, limit=100):
+    persistent = load_recent_leads(OWNER_ID or chat_id, limit) if storage_enabled() else []
+    with memory_lock:
+        temporary = list(leads_cache)
+    return (persistent + temporary)[-limit:]
+
+
+def current_bookings(chat_id, limit=200):
+    persistent = load_recent_bookings(OWNER_ID or chat_id, limit) if storage_enabled() else []
+    with memory_lock:
+        temporary = list(bookings_cache)
+    return (persistent + temporary)[-limit:]
+
+
+def current_publications(chat_id, limit=100):
+    persistent = load_recent_publications(OWNER_ID or chat_id, limit) if storage_enabled() else []
+    with memory_lock:
+        temporary = list(publications_cache)
+    return (persistent + temporary)[-limit:]
+
+
+def send_business_data_help(chat_id, kind):
+    examples = {
+        "lead": (
+            "🧾 ДОБАВИТЬ ЗАЯВКУ\n\n"
+            "/lead источник=Threads; намерение=хочу записаться; проект=рукав с волком; "
+            "стиль=графика; зона=рука; бюджет=25000; срок=30 дней\n\n"
+            "Не добавляй имя, телефон, никнейм, медицинские сведения или переписку клиента."
+        ),
+        "booking": (
+            "📅 ДОБАВИТЬ ЗАПИСЬ\n\n"
+            "/booking дата=2026-11-25; сумма=15000; статус=booked; источник=Threads\n\n"
+            "Статусы: booked, completed, cancelled, no_show. Дата — YYYY-MM-DD."
+        ),
+        "publication": (
+            "📝 УЧЕСТЬ ОПУБЛИКОВАННЫЙ ПОСТ\n\n"
+            "/publication platform=Threads; topic=авторская графика; hook=Почему ...; "
+            "url=https://threads.net/...; date=2026-11-17\n\n"
+            "После регистрации укажи ID публикации в команде /metric: публикация=ID."
+        ),
+    }
+    send_text(chat_id, examples[kind])
+
+
+def record_lead(chat_id, raw):
+    try:
+        data = parse_lead(raw)
+        score_input = {
+            "asked_booking": any(word in str(data.get("intent", "")).lower()
+                                 for word in ("запис", "сеанс", "хочу тату")),
+            "project_description": data.get("project"),
+            "placement": data.get("zone"),
+            "style": data.get("style"),
+            "budget_known": data.get("budget") is not None,
+        }
+        score = score_lead(score_input)
+        if storage_enabled():
+            saved = save_lead(OWNER_ID or chat_id, data, score)
+            if not saved:
+                send_text(chat_id, "Не удалось сохранить заявку в постоянную базу. Проверь подключение памяти.")
+                return
+            lead_id = saved.get("id")
+        else:
+            item = {
+                "id": len(leads_cache) + 1,
+                "created_at": datetime.now(ZoneInfo("Asia/Novosibirsk")).isoformat(),
+                "source_platform": data.get("source_platform", "unknown"),
+                "stage": "new", "lead_data": data, "score": score,
+            }
+            with memory_lock:
+                leads_cache.append(item)
+                del leads_cache[:-200]
+            lead_id = item["id"]
+        send_text(
+            chat_id,
+            f"✅ Заявка учтена · ID {lead_id}\n"
+            f"Приоритет: {score['priority']} · {score['score']}/100\n"
+            + ("Что уточнить: " + ", ".join(score["missing"]) if score["missing"] else "Основные поля заполнены.")
+            + ("\n\nСейчас запись временная и исчезнет после перезапуска." if not storage_enabled() else "")
+        )
+    except ValueError as exc:
+        send_text(chat_id, "Не удалось разобрать заявку: " + str(exc))
+
+
+def record_booking(chat_id, raw):
+    try:
+        data = parse_booking(raw)
+        if storage_enabled():
+            saved = save_booking(OWNER_ID or chat_id, data)
+            if not saved:
+                send_text(chat_id, "Не удалось сохранить запись в постоянную базу. Проверь подключение памяти.")
+                return
+            booking_id = saved.get("id")
+        else:
+            item = {
+                "id": len(bookings_cache) + 1,
+                "created_at": datetime.now(ZoneInfo("Asia/Novosibirsk")).isoformat(),
+                **data,
+            }
+            with memory_lock:
+                bookings_cache.append(item)
+                del bookings_cache[:-300]
+            booking_id = item["id"]
+        send_text(
+            chat_id,
+            f"✅ Запись учтена · ID {booking_id}\n"
+            f"Дата: {data['session_date']} · статус: {data['status']}\n"
+            + (f"Сумма: {data['amount']} ₽" if data.get("amount") is not None else "Сумма не указана.")
+            + ("\n\nСейчас запись временная и исчезнет после перезапуска." if not storage_enabled() else "")
+        )
+    except ValueError as exc:
+        send_text(chat_id, "Не удалось разобрать запись: " + str(exc))
+
+
+def record_publication(chat_id, raw):
+    try:
+        data = parse_publication(raw)
+        if storage_enabled():
+            saved = save_publication(
+                OWNER_ID or chat_id, data["platform"], data["topic"],
+                data.get("hook", ""), data.get("url", ""),
+                published_at=data.get("published_at"),
+            )
+            if not saved:
+                send_text(chat_id, "Не удалось сохранить публикацию. Проверь подключение памяти.")
+                return
+            publication_id = saved.get("id")
+        else:
+            item = {"id": len(publications_cache) + 1, **data, "status": "published"}
+            with memory_lock:
+                publications_cache.append(item)
+                del publications_cache[:-200]
+            publication_id = item["id"]
+        send_text(chat_id, f"✅ Публикация учтена · ID {publication_id}\nПлощадка: {data['platform']}\nТема: {data['topic']}")
+    except ValueError as exc:
+        send_text(chat_id, "Не удалось разобрать публикацию: " + str(exc))
+
+
 def run_analytics(chat_id):
-    metrics = current_metrics(chat_id, 50)
-    if not metrics:
-        send_metric_help(chat_id)
+    metrics = current_metrics(chat_id, 100)
+    leads = current_leads(chat_id, 200)
+    bookings = current_bookings(chat_id, 300)
+    if not metrics and not leads and not bookings:
+        send_text(chat_id, "Пока нет данных для аналитики. Добавь статистику через /metric, заявки через /lead и записи через /booking.")
         return
-    prompt = (
-        "Проанализируй сохранённую статистику личного бренда RAMZES. "
-        "Сравни публикации и площадки, выдели сильные и слабые форматы, "
-        "оцени вовлечение там, где есть нужные знаменатели, найди возможные закономерности "
-        "и предложи три конкретных эксперимента на следующую неделю. "
-        "Не придумывай отсутствующие показатели и не делай причинных выводов по малой выборке. "
-        "Отделяй наблюдения от гипотез.\n\nДАННЫЕ:\n"
-        + json.dumps(metrics, ensure_ascii=False, indent=2)
-    )
-    ask_ai(chat_id, prompt)
+    snapshot = build_analytics_snapshot(metrics, leads, bookings)
+    send_text(chat_id, render_daily_report(metrics, leads, bookings))
+    ask_ai(chat_id, "Проанализируй аналитику публикаций и воронку записи по сохранённым данным. Выдели факты, ограничения выборки и три следующих эксперимента.")
+
 
 
 def _ask_ai_impl(chat_id, user_text, status_message_id=None):
@@ -959,6 +1107,9 @@ def _ask_ai_impl(chat_id, user_text, status_message_id=None):
 
     brand_profile = current_brand_profile(chat_id)
     brand_context = build_brand_context(brand_profile)
+    if storage_enabled():
+        memory_events = load_recent_memory_events(OWNER_ID or chat_id, 60)
+        brand_context += build_memory_events_context(memory_events)
     recent_content = recent_content_for(chat_id, 20)
     recent_content_context = build_recent_content_context(recent_content)
 
@@ -1188,6 +1339,73 @@ def _ask_ai_impl(chat_id, user_text, status_message_id=None):
                      research_team.get("task_plan", {}).get("agents"),
                      research_team.get("task_plan", {}).get("llm_agent_count"))
             answer = research_team.get("summary") or "Не удалось собрать исследовательский отчёт."
+            remember(chat_id, "user", user_text)
+            remember(chat_id, "assistant", answer)
+            send_text(chat_id, answer)
+            return
+
+        # Route analytics, sales and non-/market research tasks through their own teams.
+        route_plan = plan_task(user_text, full_team=True)
+        direct_content = any(word in user_text.lower() for word in (
+            "напиши пост", "создай пост", "подготовь публикац", "напиши threads",
+            "сценарий видео", "сценарии reels", "контент-пакет", "контент на неделю",
+            "напиши сторис", "сделай публикацию"
+        ))
+        if route_plan.get("task_type") in {"analytics", "sales", "research"} and not direct_content:
+            leads = current_leads(chat_id, 200)
+            bookings = current_bookings(chat_id, 300)
+            metrics = current_metrics(chat_id, 100)
+            latest = (leads[-1].get("lead_data") or {}) if leads else {}
+            lead_payload = {
+                "asked_booking": any(word in str(latest.get("intent", "")).lower()
+                                     for word in ("запис", "сеанс", "хочу тату")),
+                "project_description": latest.get("project"),
+                "placement": latest.get("zone"),
+                "style": latest.get("style"),
+                "budget_known": latest.get("budget") is not None,
+            }
+            funnel_events = []
+            for lead in leads:
+                stage = lead.get("stage", "new")
+                funnel_events.append({"stage": "inquiry" if stage == "new" else stage})
+            for booking in bookings:
+                if booking.get("status") in {"booked", "completed"}:
+                    funnel_events.append({"stage": "booked"})
+            metric_audit = []
+            for row in metrics:
+                period = row.get("captured_at") or row.get("created_at")
+                for key in ("views", "likes", "comments", "reposts", "saves", "profile_visits",
+                            "followers_gained", "inbound_messages", "bookings", "ad_spend"):
+                    if row.get(key) is not None:
+                        metric_audit.append({
+                            "name": key, "value": row[key],
+                            "source": "ввод владельца · " + str(row.get("platform", "unknown")),
+                            "period": period or "период не указан",
+                        })
+            payload = {
+                "lead": lead_payload, "events": funnel_events,
+                "metrics": metric_audit, "text": user_text,
+                "platform": "multi",
+                "recent_topics": [item.get("topic", "") for item in recent_content],
+                "new_topics": [],
+            }
+            progress("🧠 Подбираю специализированную команду и проверяю доступные данные.")
+            team = run_specialist_team(
+                request_ai, user_text,
+                context=team_context,
+                task_context=user_text,
+                payload=payload,
+                full_team=True,
+            )
+            answer = team.get("summary") or "Команда не вернула результат."
+            plan_info = team.get("task_plan") or route_plan
+            if storage_enabled():
+                save_agent_run(
+                    OWNER_ID or chat_id,
+                    plan_info.get("task_type", "general"),
+                    plan_info.get("agents", []),
+                    team.get("agent_outputs", {}),
+                )
             remember(chat_id, "user", user_text)
             remember(chat_id, "assistant", answer)
             send_text(chat_id, answer)
@@ -1455,6 +1673,30 @@ def process_update(update):
         if text.startswith("/market"):
             send_text(chat_id, "🔬 Запускаю исследование рынка и конкурентов Новосибирска. Поиск по открытым источникам может занять до нескольких минут; будут указаны ссылки и ограничения данных.")
             ask_ai(chat_id, ACTIONS["market"])
+            return
+        if text.startswith("/lead"):
+            raw = text[len("/lead"):].strip()
+            if raw:
+                record_lead(chat_id, raw)
+            else:
+                send_business_data_help(chat_id, "lead")
+            return
+        if text.startswith("/booking"):
+            raw = text[len("/booking"):].strip()
+            if raw:
+                record_booking(chat_id, raw)
+            else:
+                send_business_data_help(chat_id, "booking")
+            return
+        if text.startswith("/publication"):
+            raw = text[len("/publication"):].strip()
+            if raw:
+                record_publication(chat_id, raw)
+            else:
+                send_business_data_help(chat_id, "publication")
+            return
+        if text.startswith("/analytics"):
+            run_analytics(chat_id)
             return
         if text.startswith("/metric"):
             handle_metric(chat_id, text[len("/metric"):].strip())
